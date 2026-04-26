@@ -76,7 +76,12 @@ def health():
     return {"ok": True, "port": PORT}
 
 # ── Serve built frontend (if present) ────────────────────────────────────────
-_dist = _root / "frontend" / "dist"
+# Vite builds into src/openjarvis/server/static/ (configured in vite.config)
+_dist = _root / "src" / "openjarvis" / "server" / "static"
+if not _dist.is_dir():
+    # fallback: old frontend/dist location
+    _dist = _root / "frontend" / "dist"
+
 if _dist.is_dir():
     _assets = _dist / "assets"
     if _assets.is_dir():
