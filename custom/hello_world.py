@@ -3,7 +3,7 @@
 from openjarvis.plugins import plugin
 
 
-@plugin("hello")
-def hello(jarvis, s):
-    """Repeats what you type back to you"""
-    jarvis.say(s if s else "Hello! What can I do for you?")
+@plugin("hello world")
+def hello_world(jarvis, s):
+    """Say 'hello world' — example plugin"""
+    jarvis.say("Hello, World! OpenJarvis is alive and running.")
