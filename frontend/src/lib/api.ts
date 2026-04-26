@@ -917,3 +917,70 @@ export async function getMemoryConfig(): Promise<MemoryConfig> {
   if (!res.ok) throw new Error('Failed to fetch memory config');
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Desktop Control + Voice
+// ---------------------------------------------------------------------------
+
+export interface DesktopLogEntry {
+  step: number;
+  action: string;
+  result: string;
+  success: boolean;
+}
+
+export interface DesktopGoalResult {
+  summary: string;
+  steps: number;
+  log: DesktopLogEntry[];
+}
+
+export interface VoiceCommandResult {
+  transcript: string;
+  response: string;
+  mode: 'qa' | 'control';
+}
+
+/** Capture the current screen and return base64 PNG string. */
+export async function takeScreenshot(): Promise<string> {
+  const res = await fetch(`${getBase()}/api/desktop/screenshot`);
+  if (!res.ok) throw new Error('Screenshot failed: ' + res.statusText);
+  const data = await res.json();
+  return data.base64_png as string;
+}
+
+/** Run DesktopAgent to complete a goal, streaming log entries via callback. */
+export async function runDesktopGoal(
+  goal: string,
+  onLog?: (entry: DesktopLogEntry) => void,
+  maxSteps = 15,
+): Promise<DesktopGoalResult> {
+  const res = await fetch(`${getBase()}/api/desktop/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goal, max_steps: maxSteps }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Desktop control failed');
+  }
+  const data: DesktopGoalResult = await res.json();
+  // Replay log entries via callback
+  if (onLog) data.log.forEach(onLog);
+  return data;
+}
+
+/** Send audio blob to backend, get transcript + Jarvis response. */
+export async function runVoiceCommand(audio: Blob): Promise<VoiceCommandResult> {
+  const form = new FormData();
+  form.append('audio', audio, 'recording.webm');
+  const res = await fetch(`${getBase()}/api/desktop/voice`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Voice command failed');
+  }
+  return res.json();
+}
