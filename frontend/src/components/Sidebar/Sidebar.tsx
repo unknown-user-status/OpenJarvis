@@ -18,6 +18,7 @@ import {
   ScrollText,
   Database,
   Mic,
+  Sparkles,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -53,6 +54,7 @@ export function Sidebar() {
   };
 
   const navItems = [
+    { path: '/jarvis', icon: Sparkles, label: 'Jarvis' },
     { path: '/', icon: MessageSquare, label: 'Chat' },
     { path: '/voice', icon: Mic, label: 'Voice' },
     { path: '/desktop-control', icon: Monitor, label: 'Desktop Control' },

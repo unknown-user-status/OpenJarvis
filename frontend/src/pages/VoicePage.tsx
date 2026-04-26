@@ -1,6 +1,25 @@
+/**
+ * OpenJarvis — Voice Mode
+ *
+ * Features
+ * --------
+ * • Animated "reactor-core" orb that pulses while idle, glows while recording,
+ *   and spins while Jarvis is thinking / speaking.
+ * • Hold-to-record OR click-to-toggle mic button.
+ * • Sends audio → /api/jarvis/voice  (STT → plugin/LLM dispatch)
+ * • Optional TTS: plays back Groq Orpheus WAV audio via Web Audio API.
+ * • Conversation history in a right-hand panel.
+ */
+
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Volume2, Loader2, Zap, StopCircle } from 'lucide-react';
-import { runVoiceCommand } from '../lib/api';
+import {
+  Mic, MicOff, Volume2, VolumeX, Loader2, Zap, StopCircle, X,
+} from 'lucide-react';
+import { getBase } from '../lib/api';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type Phase = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'done' | 'error';
 
@@ -8,54 +27,216 @@ interface HistoryItem {
   id: string;
   you: string;
   jarvis: string;
-  mode: 'qa' | 'control';
+  mode: 'plugin' | 'control' | 'qa';
   ts: number;
 }
 
 const RECORD_SECONDS = 6;
 
-function WaveBar({ active, index }: { active: boolean; index: number }) {
+// ---------------------------------------------------------------------------
+// Animated orb
+// ---------------------------------------------------------------------------
+
+function JarvisOrb({ phase }: { phase: Phase }) {
+  const isRecording  = phase === 'recording';
+  const isThinking   = phase === 'transcribing' || phase === 'thinking';
+  const isSpeaking   = phase === 'speaking';
+  const isDone       = phase === 'done';
+  const isError      = phase === 'error';
+
+  const coreColor = isError
+    ? '#ef4444'
+    : isRecording
+    ? '#f97316'
+    : isThinking
+    ? '#a78bfa'
+    : isSpeaking
+    ? '#34d399'
+    : '#0891b2';
+
   return (
-    <div
-      className="rounded-full transition-all"
-      style={{
-        width: 3,
-        background: active ? 'var(--color-accent)' : 'var(--color-border)',
-        height: active ? `${16 + Math.sin(Date.now() / 200 + index) * 12}px` : '6px',
-        animation: active ? `wave-bar ${0.6 + index * 0.08}s ease-in-out infinite alternate` : 'none',
-        animationDelay: `${index * 60}ms`,
-      }}
-    />
+    <div className="relative flex items-center justify-center" style={{ width: 180, height: 180 }}>
+      {/* Outer glow rings */}
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="absolute rounded-full"
+          style={{
+            width: 180 - (i - 1) * 0,
+            height: 180 - (i - 1) * 0,
+            border: `1px solid ${coreColor}`,
+            opacity: isRecording || isSpeaking ? 0.35 / i : 0.15 / i,
+            transform: `scale(${1 + i * 0.18})`,
+            animation: isRecording || isSpeaking
+              ? `orb-ring-pulse ${1.2 + i * 0.3}s ease-in-out infinite alternate`
+              : 'none',
+            transition: 'all 0.4s ease',
+          }}
+        />
+      ))}
+
+      {/* Mid ring */}
+      <div
+        className="absolute rounded-full"
+        style={{
+          width: 148,
+          height: 148,
+          border: `2px solid ${coreColor}`,
+          opacity: 0.4,
+          animation: isThinking
+            ? 'orb-spin 2s linear infinite'
+            : isRecording
+            ? 'orb-spin 1s linear infinite'
+            : 'none',
+          transition: 'opacity 0.3s',
+        }}
+      />
+
+      {/* Inner core */}
+      <div
+        className="absolute rounded-full flex items-center justify-center"
+        style={{
+          width: 120,
+          height: 120,
+          background: `radial-gradient(circle at 38% 38%, ${coreColor}44, ${coreColor}11 70%)`,
+          border: `2px solid ${coreColor}88`,
+          boxShadow: `0 0 ${isRecording || isSpeaking ? 40 : 16}px ${coreColor}55`,
+          transition: 'all 0.4s ease',
+          animation: isRecording || isSpeaking
+            ? 'orb-core-pulse 0.8s ease-in-out infinite alternate'
+            : 'none',
+        }}
+      >
+        {/* Hex grid overlay */}
+        <svg width="80" height="80" viewBox="0 0 80 80" style={{ opacity: 0.18, position: 'absolute' }}>
+          <pattern id="hex" x="0" y="0" width="20" height="17.32" patternUnits="userSpaceOnUse">
+            <polygon points="10,0 20,5 20,15 10,20 0,15 0,5" fill="none" stroke={coreColor} strokeWidth="0.5" />
+          </pattern>
+          <rect width="80" height="80" fill="url(#hex)" />
+        </svg>
+
+        {/* Center icon */}
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          {isThinking ? (
+            <Loader2 size={32} color={coreColor} className="animate-spin" />
+          ) : isRecording ? (
+            <StopCircle size={32} color={coreColor} />
+          ) : isError ? (
+            <X size={32} color={coreColor} />
+          ) : (
+            <Mic size={32} color={coreColor} />
+          )}
+        </div>
+      </div>
+
+      {/* Scanning arc */}
+      {(isThinking || isSpeaking) && (
+        <svg
+          className="absolute"
+          width="180"
+          height="180"
+          viewBox="0 0 180 180"
+          style={{ animation: 'orb-spin 3s linear infinite' }}
+        >
+          <circle
+            cx="90"
+            cy="90"
+            r="82"
+            fill="none"
+            stroke={coreColor}
+            strokeWidth="2"
+            strokeDasharray="60 460"
+            strokeLinecap="round"
+            opacity="0.6"
+          />
+        </svg>
+      )}
+    </div>
   );
 }
 
-export function VoicePage() {
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [countdown, setCountdown] = useState(RECORD_SECONDS);
-  const [transcript, setTranscript] = useState('');
-  const [response, setResponse] = useState('');
-  const [mode, setMode] = useState<'qa' | 'control'>('qa');
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [error, setError] = useState('');
-  const [bars, setBars] = useState<number[]>(Array(20).fill(6));
+// ---------------------------------------------------------------------------
+// Waveform bars (shown when recording)
+// ---------------------------------------------------------------------------
 
-  const mediaRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+function WaveBars({ active }: { active: boolean }) {
+  const [bars, setBars] = useState<number[]>(Array(28).fill(4));
   const animRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Animate waveform bars when recording
   useEffect(() => {
-    if (phase === 'recording') {
+    if (active) {
       animRef.current = setInterval(() => {
-        setBars(Array(20).fill(0).map(() => 6 + Math.random() * 24));
-      }, 80);
+        setBars(Array(28).fill(0).map(() => 4 + Math.random() * 28));
+      }, 60);
     } else {
       if (animRef.current) clearInterval(animRef.current);
-      setBars(Array(20).fill(6));
+      setBars(Array(28).fill(4));
     }
     return () => { if (animRef.current) clearInterval(animRef.current); };
-  }, [phase]);
+  }, [active]);
+
+  return (
+    <div className="flex items-end gap-[2px]" style={{ height: 40 }}>
+      {bars.map((h, i) => (
+        <div
+          key={i}
+          className="rounded-full transition-all duration-75"
+          style={{
+            width: 3,
+            height: active ? h : 4,
+            background: active ? 'var(--color-accent)' : 'var(--color-border)',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main VoicePage
+// ---------------------------------------------------------------------------
+
+export function VoicePage() {
+  const [phase, setPhase]         = useState<Phase>('idle');
+  const [countdown, setCountdown] = useState(RECORD_SECONDS);
+  const [transcript, setTranscript] = useState('');
+  const [response, setResponse]   = useState('');
+  const [mode, setMode]           = useState<'plugin' | 'control' | 'qa'>('qa');
+  const [history, setHistory]     = useState<HistoryItem[]>([]);
+  const [error, setError]         = useState('');
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [voice, setVoice]         = useState('hannah');
+
+  const mediaRef  = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioRef  = useRef<HTMLAudioElement | null>(null);
+
+  // Play back WAV base64 audio
+  const playAudio = useCallback((b64: string) => {
+    try {
+      const binary = atob(b64);
+      const bytes  = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'audio/wav' });
+      const url  = URL.createObjectURL(blob);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      setPhase('speaking');
+      audio.onended = () => {
+        setPhase('done');
+        URL.revokeObjectURL(url);
+      };
+      audio.onerror = () => setPhase('done');
+      audio.play().catch(() => setPhase('done'));
+    } catch {
+      setPhase('done');
+    }
+  }, []);
 
   const stopRecording = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -90,23 +271,40 @@ export function VoicePage() {
       stream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
       setPhase('transcribing');
+
       try {
-        const result = await runVoiceCommand(blob);
-        setTranscript(result.transcript || '');
-        setMode(result.mode || 'qa');
+        const fd = new FormData();
+        fd.append('audio', blob, 'recording.webm');
+        // Ask for TTS audio back if enabled
+        const url = `${getBase()}/api/jarvis/voice?tts=${ttsEnabled}&voice=${voice}`;
+        const res = await fetch(url, { method: 'POST', body: fd });
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(detail.detail || `Server error ${res.status}`);
+        }
+        const data = await res.json();
+
+        setTranscript(data.transcript || '');
+        setMode(data.mode || 'qa');
+        setResponse(data.response || '');
         setPhase('thinking');
-        setResponse(result.response || '');
-        setPhase('done');
+
         setHistory((h) => [
           {
             id: Date.now().toString(36),
-            you: result.transcript || '',
-            jarvis: result.response || '',
-            mode: result.mode || 'qa',
+            you: data.transcript || '',
+            jarvis: data.response || '',
+            mode: data.mode || 'qa',
             ts: Date.now(),
           },
           ...h.slice(0, 49),
         ]);
+
+        if (ttsEnabled && data.audio_b64) {
+          playAudio(data.audio_b64);
+        } else {
+          setPhase('done');
+        }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg);
@@ -116,7 +314,6 @@ export function VoicePage() {
 
     recorder.start();
 
-    // Countdown
     let remaining = RECORD_SECONDS;
     timerRef.current = setInterval(() => {
       remaining -= 1;
@@ -126,115 +323,122 @@ export function VoicePage() {
         stopRecording();
       }
     }, 1000);
-  }, [stopRecording]);
+  }, [stopRecording, ttsEnabled, voice, playAudio]);
 
-  const handleMicClick = () => {
-    if (phase === 'recording') {
-      stopRecording();
-    } else if (phase === 'idle' || phase === 'done' || phase === 'error') {
-      startRecording();
-    }
+  const handleOrbClick = () => {
+    if (phase === 'recording') { stopRecording(); return; }
+    if (phase === 'speaking')  { audioRef.current?.pause(); setPhase('done'); return; }
+    if (['idle', 'done', 'error'].includes(phase)) startRecording();
   };
 
   const isRecording = phase === 'recording';
-  const isWorking = phase === 'transcribing' || phase === 'thinking';
+  const isWorking   = phase === 'transcribing' || phase === 'thinking';
 
   const phaseLabel: Record<Phase, string> = {
-    idle: 'Press the mic to speak',
-    recording: `Recording… ${countdown}s`,
+    idle:         'Click the orb to speak',
+    recording:    `Listening… ${countdown}s`,
     transcribing: 'Transcribing…',
-    thinking: 'Jarvis is thinking…',
-    speaking: 'Speaking…',
-    done: 'Done — press mic to speak again',
-    error: error || 'Error',
+    thinking:     'Jarvis is thinking…',
+    speaking:     'Jarvis is speaking…',
+    done:         'Click the orb to speak again',
+    error:        error || 'Error occurred',
   };
+
+  const modeBadge = {
+    plugin:  { label: 'Plugin', color: 'var(--color-accent)' },
+    control: { label: 'Desktop Control', color: 'var(--color-accent-amber)' },
+    qa:      { label: 'AI Answer', color: 'var(--color-accent-purple)' },
+  } as const;
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Main panel */}
-      <div className="flex-1 flex flex-col items-center justify-start overflow-y-auto px-6 py-10">
+      {/* ── Main panel ── */}
+      <div className="flex-1 flex flex-col items-center overflow-y-auto px-6 py-10">
         <div className="w-full max-w-xl">
+
           {/* Header */}
-          <div className="mb-8 text-center">
-            <h1 className="text-2xl font-semibold mb-1" style={{ color: 'var(--color-text)' }}>
-              Voice Mode
+          <div className="mb-10 text-center">
+            <h1 className="text-3xl font-bold mb-1" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
+              OpenJarvis
             </h1>
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              Speak a question or give Jarvis a command to control your machine
+              Voice — Ask anything, control your machine
             </p>
           </div>
 
-          {/* Mic button + waveform */}
+          {/* Orb + waveform */}
           <div className="flex flex-col items-center gap-6 mb-8">
-            {/* Waveform */}
-            <div className="flex items-end gap-[3px] h-10">
-              {bars.map((h, i) => (
-                <div
-                  key={i}
-                  className="rounded-full transition-all duration-75"
-                  style={{
-                    width: 3,
-                    height: isRecording ? h : 6,
-                    background: isRecording ? 'var(--color-accent)' : 'var(--color-border)',
-                  }}
-                />
-              ))}
-            </div>
-
-            {/* Mic button */}
             <button
-              onClick={handleMicClick}
+              onClick={handleOrbClick}
               disabled={isWorking}
-              className="relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer"
+              className="transition-transform duration-150 focus:outline-none"
               style={{
-                background: isRecording
-                  ? 'var(--color-error)'
-                  : isWorking
-                    ? 'var(--color-bg-tertiary)'
-                    : 'var(--color-accent)',
-                boxShadow: isRecording
-                  ? '0 0 0 8px rgba(220,38,38,0.15), 0 0 0 16px rgba(220,38,38,0.07)'
-                  : isWorking
-                    ? 'none'
-                    : '0 0 0 8px var(--color-accent-subtle)',
-                opacity: isWorking ? 0.5 : 1,
                 cursor: isWorking ? 'default' : 'pointer',
+                opacity: isWorking ? 0.85 : 1,
+                transform: isWorking ? 'scale(0.97)' : 'scale(1)',
               }}
+              aria-label={isRecording ? 'Stop recording' : 'Start recording'}
             >
-              {isWorking ? (
-                <Loader2 size={28} className="animate-spin text-white" />
-              ) : isRecording ? (
-                <StopCircle size={28} color="white" />
-              ) : (
-                <Mic size={28} color="white" />
-              )}
+              <JarvisOrb phase={phase} />
             </button>
 
+            <WaveBars active={isRecording} />
+
             {/* Phase label */}
-            <p className="text-sm font-medium" style={{ color: phase === 'error' ? 'var(--color-error)' : 'var(--color-text-secondary)' }}>
+            <p
+              className="text-sm font-medium tracking-wide"
+              style={{ color: phase === 'error' ? 'var(--color-error)' : 'var(--color-text-secondary)' }}
+            >
               {phaseLabel[phase]}
             </p>
+
+            {/* TTS / voice controls */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setTtsEnabled((v) => !v)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: ttsEnabled ? 'var(--color-accent-subtle)' : 'var(--color-bg-secondary)',
+                  border: `1px solid ${ttsEnabled ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                  color: ttsEnabled ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                }}
+              >
+                {ttsEnabled ? <Volume2 size={12} /> : <VolumeX size={12} />}
+                {ttsEnabled ? 'Voice ON' : 'Voice OFF'}
+              </button>
+
+              {ttsEnabled && (
+                <select
+                  value={voice}
+                  onChange={(e) => setVoice(e.target.value)}
+                  className="text-xs px-2 py-1.5 rounded-lg outline-none cursor-pointer"
+                  style={{
+                    background: 'var(--color-bg-secondary)',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-text-secondary)',
+                  }}
+                >
+                  {['hannah', 'autumn', 'diana', 'austin', 'daniel', 'troy'].map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
-          {/* Transcript + response */}
+          {/* Transcript + response bubbles */}
           {(transcript || response) && (
-            <div className="flex flex-col gap-3 mb-6">
+            <div className="flex flex-col gap-3 mb-8">
               {transcript && (
                 <div
                   className="rounded-xl px-4 py-3"
                   style={{ background: 'var(--color-accent-subtle)', border: '1px solid var(--color-accent-subtle)' }}
                 >
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1.5">
                     <Mic size={12} style={{ color: 'var(--color-accent)' }} />
-                    <span className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--color-accent)' }}>You</span>
-                    {mode === 'control' && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                        style={{ background: 'var(--color-accent-amber-subtle)', color: 'var(--color-accent-amber)' }}
-                      >
-                        <Zap size={8} className="inline mr-0.5" />Desktop Control
-                      </span>
-                    )}
+                    <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--color-accent)' }}>
+                      You
+                    </span>
                   </div>
                   <p className="text-sm" style={{ color: 'var(--color-text)' }}>{transcript}</p>
                 </div>
@@ -245,9 +449,22 @@ export function VoicePage() {
                   className="rounded-xl px-4 py-3"
                   style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
                 >
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1.5">
                     <Volume2 size={12} style={{ color: 'var(--color-text-secondary)' }} />
-                    <span className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>Jarvis</span>
+                    <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>
+                      Jarvis
+                    </span>
+                    <span
+                      className="text-[10px] px-2 py-0.5 rounded-full font-medium ml-1"
+                      style={{
+                        background: `${modeBadge[mode].color}18`,
+                        color: modeBadge[mode].color,
+                        border: `1px solid ${modeBadge[mode].color}44`,
+                      }}
+                    >
+                      {mode === 'control' && <Zap size={8} className="inline mr-0.5" />}
+                      {modeBadge[mode].label}
+                    </span>
                   </div>
                   <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--color-text)' }}>{response}</p>
                 </div>
@@ -255,16 +472,17 @@ export function VoicePage() {
             </div>
           )}
 
-          {/* Quick commands */}
-          <div className="mb-6">
-            <p className="text-xs font-medium mb-2 uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>
+          {/* Quick-commands grid */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
               Example commands
             </p>
             <div className="flex flex-wrap gap-2">
               {[
-                'Open Chrome', 'Search for the weather', 'Close Notepad',
-                'Take a screenshot', 'What is the capital of France?',
-                'Show desktop', 'Volume up',
+                'What time is it', 'Show me the news', 'Weather in Tokyo',
+                'Tell me about black holes', 'System status', 'Volume up',
+                'Take a screenshot', 'Play lofi music', 'Tell a joke',
+                'Remember my name is Alex', 'What do you know about me',
               ].map((cmd) => (
                 <button
                   key={cmd}
@@ -285,14 +503,15 @@ export function VoicePage() {
         </div>
       </div>
 
-      {/* History sidebar */}
+      {/* ── History sidebar ── */}
       {history.length > 0 && (
         <div
           className="w-72 shrink-0 flex flex-col overflow-hidden"
           style={{ borderLeft: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
         >
-          <div className="px-4 py-3 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <h2 className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>History</h2>
+          <div className="px-4 py-3 shrink-0 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>History</h2>
+            <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{history.length}</span>
           </div>
           <div className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-2">
             {history.map((item) => (
@@ -304,8 +523,10 @@ export function VoicePage() {
                 <div className="flex items-center gap-1.5 mb-1">
                   {item.mode === 'control' ? (
                     <Zap size={10} style={{ color: 'var(--color-accent-amber)' }} />
-                  ) : (
+                  ) : item.mode === 'plugin' ? (
                     <Volume2 size={10} style={{ color: 'var(--color-accent)' }} />
+                  ) : (
+                    <MicOff size={10} style={{ color: 'var(--color-accent-purple)' }} />
                   )}
                   <span className="font-medium truncate" style={{ color: 'var(--color-text)' }}>{item.you}</span>
                 </div>
@@ -315,6 +536,22 @@ export function VoicePage() {
           </div>
         </div>
       )}
+
+      {/* CSS keyframe animations injected once */}
+      <style>{`
+        @keyframes orb-ring-pulse {
+          from { opacity: 0.08; transform: scale(1.18); }
+          to   { opacity: 0.30; transform: scale(1.26); }
+        }
+        @keyframes orb-spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes orb-core-pulse {
+          from { box-shadow: 0 0 20px var(--color-accent)44; }
+          to   { box-shadow: 0 0 45px var(--color-accent)88; }
+        }
+      `}</style>
     </div>
   );
 }
