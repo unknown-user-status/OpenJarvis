@@ -83,6 +83,7 @@ class JarvisContext:
     """Runtime context passed to plugin functions.
 
     Mirrors ``JarvisAPI`` from sukeesh/Jarvis with OpenJarvis-native backends.
+    Includes persistent memory (MK37-style long_term.json).
     """
 
     def __init__(
@@ -95,6 +96,8 @@ class JarvisContext:
         self._api_key = api_key or os.environ.get("GROQ_API_KEY", "")
         self._model = model
         self._output: List[str] = []
+        # Lazy-load memory so the module can be imported without it
+        self._memory: Optional[dict] = None
 
     # ------------------------------------------------------------------
     # Core methods
@@ -142,6 +145,61 @@ class JarvisContext:
     def get_output(self) -> List[str]:
         """Return all text emitted via say() this session."""
         return list(self._output)
+
+    # ------------------------------------------------------------------
+    # Memory (MK37-style persistent store)
+    # ------------------------------------------------------------------
+
+    def _get_memory(self) -> dict:
+        if self._memory is None:
+            try:
+                from openjarvis.memory.memory_manager import load_memory
+                self._memory = load_memory()
+            except Exception:
+                self._memory = {}
+        return self._memory
+
+    def remember(self, key: str, value: str, category: str = "notes") -> str:
+        """Persist a key/value pair in long-term memory."""
+        try:
+            from openjarvis.memory.memory_manager import remember as _remember
+            result = _remember(key, value, category)
+            self._memory = None  # invalidate cache
+            return result
+        except Exception as exc:
+            return f"Memory error: {exc}"
+
+    def recall(self, key: str, category: str = "notes") -> str:
+        """Retrieve a value from long-term memory."""
+        mem = self._get_memory()
+        cat = mem.get(category, {})
+        entry = cat.get(key)
+        if entry:
+            return entry.get("value", "") if isinstance(entry, dict) else str(entry)
+        # Search all categories
+        for cat_name, cat_data in mem.items():
+            if isinstance(cat_data, dict) and key in cat_data:
+                entry = cat_data[key]
+                return entry.get("value", "") if isinstance(entry, dict) else str(entry)
+        return ""
+
+    def forget(self, key: str, category: str = "notes") -> str:
+        """Remove a key from long-term memory."""
+        try:
+            from openjarvis.memory.memory_manager import forget as _forget
+            result = _forget(key, category)
+            self._memory = None
+            return result
+        except Exception as exc:
+            return f"Memory error: {exc}"
+
+    def memory_summary(self) -> str:
+        """Return a formatted string of all known memory."""
+        try:
+            from openjarvis.memory.memory_manager import format_memory_for_prompt
+            return format_memory_for_prompt(self._get_memory())
+        except Exception:
+            return ""
 
 
 # ---------------------------------------------------------------------------

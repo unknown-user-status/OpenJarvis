@@ -1,5 +1,5 @@
 """
-OpenJarvis Voice Mode  (v2 — Advanced)
+OpenJarvis Voice Mode  (v3 — MK37-Enhanced)
 =======================================
 Features
 --------
@@ -190,18 +190,32 @@ def transcribe(audio: np.ndarray) -> str:
 
 # ── LLM Q&A ──────────────────────────────────────────────────────────────────
 
+def _build_system_prompt() -> str:
+    """Build a memory-aware system prompt."""
+    base = (
+        "You are OpenJarvis, an advanced AI assistant — the most capable version ever built. "
+        "You have persistent memory, can control computers, search the web, manage files, "
+        "set reminders, play music, and much more. "
+        "Give concise, helpful answers. Be accurate. Keep responses under 3 sentences "
+        "unless the question genuinely needs more detail. Address the user naturally."
+    )
+    try:
+        from openjarvis.memory.memory_manager import load_memory, format_memory_for_prompt
+        mem = load_memory()
+        mem_block = format_memory_for_prompt(mem)
+        if mem_block:
+            return base + "\n\n" + mem_block
+    except Exception:
+        pass
+    return base
+
+
 def _llm_answer(question: str) -> str:
+    system_prompt = _build_system_prompt()
     response = _GROQ.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are OpenJarvis, an intelligent AI assistant. "
-                    "Give concise, helpful answers. When answering factual questions "
-                    "be accurate. Keep responses under 3 sentences unless more is needed."
-                ),
-            },
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": question},
         ],
         max_tokens=512,
@@ -214,26 +228,65 @@ def _llm_answer(question: str) -> str:
 
 # Keywords whose presence routes to the PLUGIN system first
 _PLUGIN_TRIGGERS = (
-    "time", "date", "day", "today", "news", "headlines", "weather",
-    "note", "remember", "write down", "make a note", "read notes", "show notes", "my notes",
-    "joke", "tell a joke", "tell me about", "who is", "what is", "wikipedia", "wiki",
+    # Time / date
+    "time", "date", "day", "today",
+    # News
+    "news", "headlines", "top news",
+    # Weather
+    "weather",
+    # Notes
+    "note", "make a note", "write this down", "remember this", "read notes", "show notes", "my notes",
+    # Memory (MK37)
+    "remember", "memorize", "what do you know", "my memory", "show memory", "forget", "recall",
+    # Jokes
+    "joke", "tell a joke",
+    # Wikipedia / Q&A
+    "tell me about", "who is", "what is", "wikipedia", "wiki",
+    # System info
     "system", "cpu", "ram", "battery", "disk", "ip address",
+    # Location
     "where am i", "my location", "current location", "where is",
-    "play", "youtube", "play music", "search youtube",
-    "calculate", "email", "send email",
+    # YouTube / music
+    "play", "youtube", "play music", "search youtube", "play on youtube",
+    # Search
+    "search", "google", "web search", "search web", "look up", "find information",
+    # Calculator
+    "calculate",
+    # Email
+    "email", "send email",
+    # App launcher
     "open ", "launch", "start app",
+    # File manager (MK37)
+    "list files", "show files", "read file", "find file", "disk usage", "disk space",
+    "create file", "delete file", "rename file", "move file",
+    # Desktop manager (MK37)
+    "list desktop", "show desktop files", "organize desktop", "clean desktop",
+    "set wallpaper", "wallpaper from url", "change wallpaper",
+    # Computer settings (MK37)
+    "volume up", "volume down", "mute", "set volume",
+    "brightness up", "brightness down",
+    "minimize window", "maximize window", "fullscreen",
+    "switch window", "lock screen",
+    "close tab", "new tab", "next tab",
+    "zoom in", "zoom out",
+    "scroll up", "scroll down",
+    "copy", "paste", "undo", "redo", "select all", "save file",
+    "type text", "take screenshot", "capture screen",
+    # Reminders (MK37)
+    "remind me", "reminder", "set reminder", "set a reminder",
+    # Screen analysis (MK37)
+    "analyze screen", "what's on my screen", "look at screen", "screen analysis", "what do you see",
+    # Greetings
+    "hello", "hi", "hey", "good morning", "good evening", "good afternoon", "goodbye", "bye",
 )
 
-# Keywords that route specifically to desktop-control (DesktopAgent)
+# Keywords that route specifically to desktop-control (DesktopAgent) — low-level mouse/keyboard ops
 _CONTROL_KEYWORDS = (
-    "click ", "double click", "right click", "drag ", "scroll ",
-    "type ", "hotkey ", "press key", "key down", "key up",
-    "take screenshot", "take a screenshot", "capture the screen",
-    "minimize ", "maximize ", "restore window", "close window",
-    "focus on ", "switch to ", "switch window",
-    "volume up", "volume down", "mute ",
-    "show desktop", "copy", "paste", "select all", "undo", "redo",
-    "go to ", "navigate to ",
+    "click on ", "double click on", "right click on", "drag ",
+    "press key ", "key down ", "key up ",
+    "focus on ", "switch to window", "close the window",
+    "restore window",
+    "go to website", "navigate to ",
 )
 
 
@@ -313,7 +366,7 @@ def _handle(command: str) -> None:
 
 def main() -> None:
     print("=" * 60)
-    print("  OpenJarvis — Advanced Voice Mode  (v2)")
+    print("  OpenJarvis — Voice Mode  (v3 — MK37 Enhanced)")
     print("  Powered by Groq (Free) | LLaMA + Whisper + Orpheus TTS")
     print("=" * 60)
     print()
@@ -322,14 +375,21 @@ def main() -> None:
     print("    Time & Date          →  'What time is it'")
     print("    Weather              →  'Weather in London'")
     print("    Notes                →  'Note: Call dentist at 3pm'")
+    print("    Persistent Memory    →  'Remember my name is Alex'")
     print("    Wikipedia            →  'Tell me about quantum physics'")
     print("    YouTube              →  'Play Bohemian Rhapsody'")
+    print("    Web Search           →  'Search web latest AI news'")
     print("    Apps & websites      →  'Open Chrome'")
     print("    System info          →  'System status'")
+    print("    File manager         →  'List files desktop'")
+    print("    Desktop manager      →  'Organize desktop'")
+    print("    Computer settings    →  'Volume up' / 'Set volume 50'")
+    print("    Screen analysis      →  'Analyze screen'")
+    print("    Reminders            →  'Remind me 2026-05-01 09:00 dentist'")
     print("    Location             →  'Where am I'")
     print("    Email                →  'Send email'")
     print("    Jokes                →  'Tell me a joke'")
-    print("    Machine control      →  'Click the start button'")
+    print("    Machine control      →  'Click on the start button'")
     print("    General Q&A          →  Anything else")
     print()
     print("  Say 'exit' or 'goodbye' to quit.")
