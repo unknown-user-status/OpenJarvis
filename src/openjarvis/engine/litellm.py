@@ -48,6 +48,8 @@ class LiteLLMEngine(InferenceEngine):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         import litellm
+        litellm.suppress_debug_info = True
+        litellm.set_verbose = False
 
         call_kwargs: Dict[str, Any] = {
             "model": model,
