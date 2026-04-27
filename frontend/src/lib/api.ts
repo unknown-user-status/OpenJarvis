@@ -970,6 +970,35 @@ export async function runDesktopGoal(
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Budget limits
+// ---------------------------------------------------------------------------
+
+export interface BudgetLimits {
+  max_tokens_per_day: number | null;
+  max_requests_per_hour: number | null;
+}
+
+export interface BudgetStatus {
+  limits: BudgetLimits;
+  usage: { tokens_today: number; requests_this_hour: number };
+}
+
+export async function getBudgetStatus(): Promise<BudgetStatus> {
+  const res = await fetch(`${getBase()}/v1/budget`);
+  if (!res.ok) throw new Error('Failed to fetch budget status');
+  return res.json();
+}
+
+export async function setBudgetLimits(limits: Partial<BudgetLimits>): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/budget/limits`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(limits),
+  });
+  if (!res.ok) throw new Error('Failed to set budget limits');
+}
+
 /** Send audio blob to backend, get transcript + Jarvis response. */
 export async function runVoiceCommand(audio: Blob): Promise<VoiceCommandResult> {
   const form = new FormData();

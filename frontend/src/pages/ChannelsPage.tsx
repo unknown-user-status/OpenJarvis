@@ -511,6 +511,98 @@ function ChannelSetupPanel({
           This channel requires no credentials and will connect immediately.
         </div>
       )}
+
+      {/* Slack-specific: Block Kit rich messages toggle */}
+      {(channel.id === 'slack' || channel.id === 'slack_daemon') && (
+        <SlackBlockKitSection />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slack Block Kit toggle panel (shown below credentials when channel is Slack)
+// ---------------------------------------------------------------------------
+
+function SlackBlockKitSection() {
+  const [blockKitEnabled, setBlockKitEnabled] = useState(() => {
+    try { return localStorage.getItem('openjarvis-slack-blockkit') === 'true'; } catch { return false; }
+  });
+
+  const toggle = () => {
+    const next = !blockKitEnabled;
+    setBlockKitEnabled(next);
+    try { localStorage.setItem('openjarvis-slack-blockkit', String(next)); } catch {}
+  };
+
+  return (
+    <div style={{
+      marginTop: 20,
+      background: 'rgba(74,144,226,0.06)',
+      border: '1px solid rgba(74,144,226,0.2)',
+      borderRadius: 10, padding: 16,
+    }}>
+      <div style={{ fontSize: 11, color: '#4a90e2', letterSpacing: '0.12em', fontWeight: 700, marginBottom: 12 }}>
+        RICH MESSAGES (BLOCK KIT)
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 500, marginBottom: 3 }}>
+            Use Block Kit formatting
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+            Enables buttons, sections, and attachments in Slack responses
+          </div>
+        </div>
+        <button
+          onClick={toggle}
+          style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+            background: blockKitEnabled ? '#4a90e2' : 'rgba(255,255,255,0.1)',
+            position: 'relative', flexShrink: 0, transition: 'background 0.2s',
+          }}
+        >
+          <span style={{
+            position: 'absolute', top: 3, left: blockKitEnabled ? 23 : 3,
+            width: 18, height: 18, borderRadius: '50%', background: '#fff',
+            transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+          }} />
+        </button>
+      </div>
+
+      {blockKitEnabled && (
+        <div>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>
+            Example Block Kit response format:
+          </div>
+          <pre style={{
+            background: 'rgba(0,0,0,0.3)', borderRadius: 6, padding: '10px 12px',
+            fontSize: 10, color: '#94a3b8', overflow: 'auto',
+            border: '1px solid rgba(255,255,255,0.06)', margin: 0, lineHeight: 1.6,
+          }}>
+{`{
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Response*: ..."
+      }
+    },
+    {
+      "type": "divider"
+    }
+  ]
+}`}
+          </pre>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+            Jarvis will wrap its responses in Block Kit JSON when replying via Slack.
+            The backend reads <code style={{ color: '#a78bfa' }}>openjarvis-slack-blockkit</code> from
+            your preferences.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

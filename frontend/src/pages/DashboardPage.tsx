@@ -1,5 +1,6 @@
 import { EnergyDashboard } from '../components/Dashboard/EnergyDashboard';
 import { CostComparison } from '../components/Dashboard/CostComparison';
+import { SavingsSummaryCard } from '../components/Dashboard/SavingsSummaryCard';
 import { TraceDebugger } from '../components/Dashboard/TraceDebugger';
 
 export function DashboardPage() {
@@ -22,6 +23,10 @@ export function DashboardPage() {
             Live telemetry for the on-device inference engine — power draw, token throughput, and cost savings versus cloud APIs.
           </p>
         </header>
+
+        <div className="mb-4">
+          <SavingsSummaryCard />
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
           <EnergyDashboard />

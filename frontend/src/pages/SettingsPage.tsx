@@ -16,9 +16,10 @@ import {
   Key,
   Search,
   Brain,
+  DollarSign,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth, getMemoryStats } from '../lib/api';
+import { checkHealth, fetchSpeechHealth, getMemoryStats, getBudgetStatus, setBudgetLimits } from '../lib/api';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -139,6 +140,12 @@ export function SettingsPage() {
     try { return parseInt(localStorage.getItem('openjarvis-memory-max-tokens') || '2048'); } catch { return 2048; }
   });
 
+  // Budget limits state
+  const [budgetTokensPerDay, setBudgetTokensPerDay] = useState<string>('');
+  const [budgetRequestsPerHour, setBudgetRequestsPerHour] = useState<string>('');
+  const [budgetUsage, setBudgetUsage] = useState<{ tokens_today: number; requests_this_hour: number } | null>(null);
+  const [budgetSaving, setBudgetSaving] = useState(false);
+
   useEffect(() => {
     checkHealth().then(setHealthy);
     fetchSpeechHealth()
@@ -147,7 +154,26 @@ export function SettingsPage() {
     getMemoryStats()
       .then(setMemoryStats)
       .catch(() => setMemoryStats(null));
+    getBudgetStatus()
+      .then((s) => {
+        setBudgetTokensPerDay(s.limits.max_tokens_per_day != null ? String(s.limits.max_tokens_per_day) : '');
+        setBudgetRequestsPerHour(s.limits.max_requests_per_hour != null ? String(s.limits.max_requests_per_hour) : '');
+        setBudgetUsage(s.usage);
+      })
+      .catch(() => {});
   }, []);
+
+  const handleSaveBudget = async () => {
+    setBudgetSaving(true);
+    try {
+      await setBudgetLimits({
+        max_tokens_per_day: budgetTokensPerDay ? parseInt(budgetTokensPerDay) : null,
+        max_requests_per_hour: budgetRequestsPerHour ? parseInt(budgetRequestsPerHour) : null,
+      });
+      showSaved();
+    } catch { /* server may be offline */ }
+    setBudgetSaving(false);
+  };
 
   const showSaved = () => {
     setSaved(true);
@@ -464,6 +490,65 @@ export function SettingsPage() {
                 className="w-32 cursor-pointer accent-[var(--color-accent)]"
               />
             </SettingRow>
+          </Section>
+
+          {/* Budget Limits */}
+          <Section title="Budget Limits">
+            <SettingRow label="Max tokens / day" description="Stop new requests when daily token usage exceeds this limit (blank = unlimited)">
+              <div className="flex items-center gap-2">
+                <DollarSign size={12} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} />
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={budgetTokensPerDay}
+                  onChange={(e) => setBudgetTokensPerDay(e.target.value)}
+                  placeholder="e.g. 100000"
+                  className="w-36 text-sm px-3 py-1.5 rounded-lg outline-none"
+                  style={{
+                    background: 'var(--color-bg-secondary)',
+                    color: 'var(--color-text)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                />
+              </div>
+            </SettingRow>
+            <SettingRow label="Max requests / hour" description="Rate-limit incoming requests per rolling hour window (blank = unlimited)">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={budgetRequestsPerHour}
+                onChange={(e) => setBudgetRequestsPerHour(e.target.value)}
+                placeholder="e.g. 60"
+                className="w-36 text-sm px-3 py-1.5 rounded-lg outline-none"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                }}
+              />
+            </SettingRow>
+            {budgetUsage && (
+              <div className="flex gap-4 mt-3 px-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                <span>Tokens today: <strong style={{ color: 'var(--color-text)' }}>{budgetUsage.tokens_today.toLocaleString()}</strong></span>
+                <span>Requests this hour: <strong style={{ color: 'var(--color-text)' }}>{budgetUsage.requests_this_hour}</strong></span>
+              </div>
+            )}
+            <div className="mt-4">
+              <button
+                onClick={handleSaveBudget}
+                disabled={budgetSaving}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                style={{
+                  background: 'var(--color-accent)',
+                  color: 'white',
+                  opacity: budgetSaving ? 0.6 : 1,
+                }}
+              >
+                {budgetSaving ? 'Saving…' : 'Save limits'}
+              </button>
+            </div>
           </Section>
 
           {/* Speech */}

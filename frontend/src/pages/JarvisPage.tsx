@@ -30,6 +30,8 @@ interface Message {
   content: string;
   mode?: 'plugin' | 'control' | 'qa';
   ts: number;
+  promptTokens?: number;
+  completionTokens?: number;
 }
 
 const RECORD_SECONDS = 6;
@@ -209,8 +211,19 @@ function Bubble({ msg }: { msg: Message }) {
         >
           {msg.content}
         </div>
-        <div className="text-[10px] mt-1 px-1" style={{ color: 'var(--color-text-tertiary)' }}>
-          {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <div className="flex items-center gap-2 mt-1 px-1">
+          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+            {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          {!isUser && (msg.promptTokens ?? 0) > 0 && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+              style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }}
+              title={`${msg.promptTokens} prompt + ${msg.completionTokens} completion tokens`}
+            >
+              {msg.promptTokens}↑ {msg.completionTokens}↓
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -286,8 +299,17 @@ export function JarvisPage() {
     return () => clearInterval(t);
   }, []);
 
-  const pushMsg = (role: 'user' | 'jarvis', content: string, mode?: Message['mode']) =>
-    setMessages((prev) => [...prev, { id: Date.now().toString(36) + Math.random(), role, content, mode, ts: Date.now() }]);
+  const pushMsg = (
+    role: 'user' | 'jarvis',
+    content: string,
+    mode?: Message['mode'],
+    promptTokens?: number,
+    completionTokens?: number,
+  ) =>
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now().toString(36) + Math.random(), role, content, mode, ts: Date.now(), promptTokens, completionTokens },
+    ]);
 
   // ── Play TTS ──────────────────────────────────────────────────────────────
 
@@ -326,7 +348,7 @@ export function JarvisPage() {
         throw new Error(d.detail || `Error ${res.status}`);
       }
       const data = await res.json();
-      pushMsg('jarvis', data.response, data.mode);
+      pushMsg('jarvis', data.response, data.mode, data.prompt_tokens, data.completion_tokens);
       if (ttsOn && data.audio_b64) {
         playAudio(data.audio_b64);
       } else {
