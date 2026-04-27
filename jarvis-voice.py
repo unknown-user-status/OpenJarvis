@@ -539,100 +539,105 @@ def _llm_answer(question: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# VAD — continuous listening
+# VAD — single always-open mic stream
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _rms(frame: np.ndarray) -> float:
     return float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
 
 
+# Global audio queue — the mic callback pushes into this from its thread.
+# The main loop pops from it.  One stream, opened once, never closed.
+_AUDIO_Q: queue.Queue[np.ndarray] = queue.Queue(maxsize=0)
+
+
+def _mic_callback(indata: np.ndarray, frames: int, time_info, status) -> None:
+    """Called by sounddevice on every audio block — runs in a background thread."""
+    _AUDIO_Q.put_nowait(indata[:, 0].copy())
+
+
 def _calibrate_ambient(duration_s: float = 1.5) -> float:
-    """Measure ambient noise level so we can set a good threshold."""
-    frames: list[np.ndarray] = []
-    q: queue.Queue[np.ndarray] = queue.Queue()
-
-    def cb(indata, *_):
-        q.put(indata[:, 0].copy())
-
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
-                        dtype="float32", blocksize=FRAME_SAMPLES, callback=cb):
-        deadline = time.time() + duration_s
-        while time.time() < deadline:
-            try:
-                frames.append(q.get(timeout=0.5))
-            except queue.Empty:
-                pass
-
-    if not frames:
+    """Drain _AUDIO_Q for duration_s and compute ambient RMS threshold."""
+    print("  Calibrating mic — please be quiet...")
+    rms_vals: list[float] = []
+    deadline = time.time() + duration_s
+    while time.time() < deadline:
+        try:
+            frame = _AUDIO_Q.get(timeout=0.3)
+            rms_vals.append(_rms(frame))
+        except queue.Empty:
+            pass
+    if not rms_vals:
+        print(f"  No audio frames received — using default threshold {ENERGY_THRESHOLD:.4f}")
         return ENERGY_THRESHOLD
-    rms_vals = [_rms(f) for f in frames]
     ambient = float(np.mean(rms_vals))
-    # threshold = ambient * 3, but at least the default minimum
-    threshold = max(ENERGY_THRESHOLD, ambient * 3.5)
-    print(f"  Ambient noise: {ambient:.4f}  →  threshold set to {threshold:.4f}")
+    threshold = max(ENERGY_THRESHOLD, ambient * 4.0)
+    print(f"  Ambient: {ambient:.4f}  →  VAD threshold: {threshold:.4f}")
     return threshold
 
 
-def record_utterance(threshold: float) -> np.ndarray | None:
-    """
-    Block until the user speaks, record the utterance, return audio array.
-    Returns None if nothing was detected within 2 s of a queue timeout.
-    Skips recording while Jarvis is speaking (avoids echo loops).
-    """
-    q: queue.Queue[np.ndarray] = queue.Queue()
+def _drain_queue() -> None:
+    """Empty _AUDIO_Q without processing (used while Jarvis is speaking)."""
+    while not _AUDIO_Q.empty():
+        try:
+            _AUDIO_Q.get_nowait()
+        except queue.Empty:
+            break
 
-    def cb(indata, *_):
-        q.put(indata[:, 0].copy())
 
+def wait_for_utterance(threshold: float) -> np.ndarray | None:
+    """
+    Block until the user speaks, then record until they stop.
+    Uses the already-open global _AUDIO_Q — no stream open/close.
+
+    Returns float32 numpy array of the utterance, or None on timeout.
+    """
     pre_roll:      list[np.ndarray] = []
     speech_frames: list[np.ndarray] = []
     speech_started  = False
     silent_count    = 0
-    total_frames    = 0
     silence_needed  = int(SILENCE_TIMEOUT_S * 1000 / FRAME_MS)
     max_frames      = int(MAX_RECORD_S * 1000 / FRAME_MS)
+    frames_recorded = 0
 
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
-                        dtype="float32", blocksize=FRAME_SAMPLES, callback=cb):
-        while True:
-            # Don't listen while Jarvis is speaking
-            if _SPEAKING.is_set():
-                try:
-                    q.get(timeout=0.1)   # drain queue
-                except queue.Empty:
-                    pass
-                continue
+    while True:
+        # While TTS is playing, drain mic so we don't pick up Jarvis's voice
+        if _SPEAKING.is_set():
+            _drain_queue()
+            time.sleep(0.05)
+            continue
 
-            try:
-                frame = q.get(timeout=2.0)
-            except queue.Empty:
-                break   # return None — outer loop will call again
+        try:
+            frame = _AUDIO_Q.get(timeout=0.5)
+        except queue.Empty:
+            # No audio at all — mic may not be delivering frames yet; just retry
+            continue
 
-            energy = _rms(frame)
-            total_frames += 1
+        energy = _rms(frame)
 
-            if not speech_started:
-                pre_roll.append(frame)
-                if len(pre_roll) > PRE_ROLL_FRAMES:
-                    pre_roll.pop(0)
-                if energy > threshold:
-                    speech_started = True
-                    print("  >> Heard you — recording...", end="\r", flush=True)
-                    speech_frames.extend(pre_roll)
-                    speech_frames.append(frame)
-                    silent_count = 0
-            else:
+        if not speech_started:
+            # Pre-roll: keep a small buffer so we don't clip the first syllable
+            pre_roll.append(frame)
+            if len(pre_roll) > PRE_ROLL_FRAMES:
+                pre_roll.pop(0)
+            if energy > threshold:
+                speech_started = True
+                print("  >> Heard you — recording...", end="\r", flush=True)
+                speech_frames.extend(pre_roll)
                 speech_frames.append(frame)
-                if energy < threshold:
-                    silent_count += 1
-                    if silent_count >= silence_needed:
-                        print("  >> Done listening.                  ")
-                        break
-                else:
-                    silent_count = 0
-
-            if total_frames >= max_frames:
-                print("  >> (max length reached)")
+                silent_count = 0
+        else:
+            speech_frames.append(frame)
+            frames_recorded += 1
+            if energy < threshold:
+                silent_count += 1
+                if silent_count >= silence_needed:
+                    print("  >> Done.                          ")
+                    break
+            else:
+                silent_count = 0
+            if frames_recorded >= max_frames:
+                print("  >> (max recording time reached)")
                 break
 
     if not speech_started or len(speech_frames) < 5:
@@ -742,39 +747,59 @@ def main() -> None:
     print("  Groq: Whisper STT  |  LLaMA 3.3 70B  |  Orpheus TTS")
     print("=" * 62)
     print()
-    print("  Calibrating microphone — please be quiet for 1.5 seconds...")
+
     _load_plugins()
-    threshold = _calibrate_ambient()
-    print(f"  Ready. Just speak — Jarvis is always listening.")
-    print(f"  Say 'shutdown Jarvis' to stop.")
+
+    # ── Open the microphone ONCE and keep it open forever ────────────────────
+    # The callback pushes every frame into _AUDIO_Q.
+    # Nothing else touches the stream — no open/close per utterance.
+    stream = sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=CHANNELS,
+        dtype="float32",
+        blocksize=FRAME_SAMPLES,
+        callback=_mic_callback,
+    )
+    stream.start()
+
+    # Calibrate using the live stream
+    threshold = _calibrate_ambient(duration_s=1.5)
+
+    print()
+    print("  Ready. Just speak — Jarvis is always listening.")
+    print("  Say 'shutdown Jarvis' to stop.")
     print()
 
     _startup_greeting()
 
-    while True:
-        try:
-            print("  [Standby — listening...]", end="\r", flush=True)
-            audio = record_utterance(threshold)
-            if audio is None:
-                continue   # no speech detected — keep listening
+    try:
+        while True:
+            try:
+                print("  [Standby — listening...]", end="\r", flush=True)
+                audio = wait_for_utterance(threshold)
+                if audio is None:
+                    continue
 
-            print("  [Transcribing...]       ", end="\r", flush=True)
-            text = transcribe(audio)
-            if not text:
-                print("  [Could not understand — listening again]")
-                continue
+                print("  [Transcribing...]       ", end="\r", flush=True)
+                text = transcribe(audio)
+                if not text:
+                    print("  [Could not understand — still listening]")
+                    continue
 
-            print(f"\n  You: \"{text}\"")
-            running = _handle(text, threshold)
-            if not running:
+                print(f"\n  You: \"{text}\"")
+                running = _handle(text, threshold)
+                if not running:
+                    break
+
+            except KeyboardInterrupt:
+                print("\n\n  Goodbye!")
                 break
-
-        except KeyboardInterrupt:
-            print("\n\n  Goodbye!")
-            break
-        except Exception as exc:
-            print(f"\n  [Error: {exc}] — continuing...")
-            time.sleep(0.3)
+            except Exception as exc:
+                print(f"\n  [Error: {exc}] — continuing...")
+                time.sleep(0.3)
+    finally:
+        stream.stop()
+        stream.close()
 
     sys.exit(0)
 
