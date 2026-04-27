@@ -128,6 +128,7 @@ export function InputArea() {
     abortRef.current = controller;
 
     let accumulatedContent = '';
+    let isErrorResponse = false;
     let usage: TokenUsage | undefined;
     let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
     const toolCalls: ToolCallInfo[] = [];
@@ -209,7 +210,11 @@ export function InputArea() {
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
               accumulatedContent += delta.content;
-              setStreamState({ content: accumulatedContent, phase: '' });
+              // Detect server-side error injected as content
+              if (accumulatedContent.includes('Error during generation:')) {
+                isErrorResponse = true;
+              }
+              setStreamState({ content: accumulatedContent, phase: isErrorResponse ? 'Error' : '' });
 
               const now = Date.now();
               if (now - lastFlush >= 80) {
@@ -231,8 +236,8 @@ export function InputArea() {
         if (!accumulatedContent) accumulatedContent = '(Generation stopped)';
       } else {
         const errMsg = err?.message || String(err);
-        accumulatedContent =
-          accumulatedContent || `Error: ${errMsg}`;
+        accumulatedContent = accumulatedContent || errMsg;
+        isErrorResponse = true;
         useAppStore.getState().addLogEntry({
           timestamp: Date.now(), level: 'error', category: 'chat',
           message: `Stream error: ${errMsg}`,
@@ -278,6 +283,7 @@ export function InputArea() {
         usage,
         telemetry,
         audioMeta,
+        isErrorResponse,
       );
       if (timerRef.current) {
         clearInterval(timerRef.current);

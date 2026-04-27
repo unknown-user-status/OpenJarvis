@@ -158,6 +158,7 @@ interface AppState {
     usage?: TokenUsage,
     telemetry?: MessageTelemetry,
     audio?: { url: string },
+    isError?: boolean,
   ) => void;
   setStreamState: (state: Partial<StreamState>) => void;
   resetStream: () => void;
@@ -381,6 +382,7 @@ export const useAppStore = create<AppState>((set, get) => {
       usage?: TokenUsage,
       telemetry?: MessageTelemetry,
       audio?: { url: string },
+      isError?: boolean,
     ) => {
       const store = loadConversations();
       const conv = store.conversations[conversationId];
@@ -392,6 +394,7 @@ export const useAppStore = create<AppState>((set, get) => {
         if (usage) lastMsg.usage = usage;
         if (telemetry) lastMsg.telemetry = telemetry;
         if (audio) lastMsg.audio = audio;
+        if (isError !== undefined) lastMsg.isError = isError;
         conv.updatedAt = Date.now();
         saveConversations(store);
         set({ messages: [...conv.messages] });

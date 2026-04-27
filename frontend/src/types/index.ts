@@ -70,6 +70,8 @@ export interface ChatMessage {
   usage?: TokenUsage;
   telemetry?: MessageTelemetry;
   audio?: { url: string };
+  /** True when the content represents a generation/model error rather than a valid response. */
+  isError?: boolean;
 }
 
 export interface Conversation {

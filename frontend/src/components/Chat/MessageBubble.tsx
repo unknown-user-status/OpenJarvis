@@ -5,7 +5,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import 'katex/dist/katex.min.css';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { ToolCallCard } from './ToolCallCard';
 import { XRayFooter } from './XRayFooter';
@@ -120,6 +120,36 @@ export function MessageBubble({ message }: Props) {
   }
 
   const cleanContent = useMemo(() => stripThinkTags(message.content), [message.content]);
+
+  // Error response — show a distinct red banner instead of prose
+  if (message.isError) {
+    // Extract the human-readable part: strip leading "Error during generation: " prefix if present
+    const errorText = cleanContent
+      .replace(/^\n*Error during generation:\s*/i, '')
+      .trim();
+    return (
+      <div className="group mb-6">
+        <div
+          className="flex items-start gap-3 px-4 py-3 rounded-lg text-sm"
+          style={{
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.35)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--color-text-primary)',
+          }}
+        >
+          <AlertTriangle size={16} style={{ color: '#ef4444', marginTop: 2, flexShrink: 0 }} />
+          <div className="flex-1 min-w-0">
+            <div className="font-medium mb-0.5" style={{ color: '#ef4444', fontSize: '0.8rem' }}>
+              Generation error
+            </div>
+            <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{errorText}</div>
+          </div>
+          <CopyMessageButton content={errorText} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="group mb-6">
