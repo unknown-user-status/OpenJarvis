@@ -67,7 +67,7 @@ try:
     model_name = (
         cfg.intelligence.default_model
         or cfg.server.model
-        or "groq/llama-3.3-70b-versatile"
+        or "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
     )
 
     # ── Agent Manager ─────────────────────────────────────────────────────────
@@ -122,9 +122,9 @@ except Exception as _boot_err:
     @app.get("/v1/templates")
     def _templates(): return {"templates": []}
     @app.get("/v1/models")
-    def _models(): return {"data": [{"id": "groq/llama-3.3-70b-versatile", "object": "model"}]}
+    def _models(): return {"data": [{"id": "openrouter/nvidia/nemotron-3-super-120b-a12b:free", "object": "model"}]}
     @app.get("/v1/info")
-    def _info(): return {"model": "groq/llama-3.3-70b-versatile", "version": "3.0.0"}
+    def _info(): return {"model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free", "version": "3.0.0"}
     @app.get("/v1/connectors")
     @app.get("/v1/connectors/list")
     def _connectors(): return {"connectors": []}
@@ -166,8 +166,8 @@ try:
 
     # /v1/recommended-model
     _safe_add("get", "/v1/recommended-model",
-              lambda: JSONResponse({"model": "groq/llama-3.3-70b-versatile",
-                                    "reason": "Groq key detected"}))
+              lambda: JSONResponse({"model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+                                    "reason": "Free model configured"}))
 except Exception:
     pass
 
