@@ -5,7 +5,7 @@ color 0B
 echo.
 echo  ============================================================
 echo   OpenJarvis - Ollama Vision Setup
-echo   Recommended model: moondream2 (fastest, CPU-friendly)
+echo   Recommended model: moondream (fastest, CPU-friendly)
 echo  ============================================================
 echo.
 
@@ -40,7 +40,7 @@ if %errorlevel% neq 0 (
 echo.
 echo  Choose which vision model to download:
 echo.
-echo  [1] moondream2  ~1.7 GB  Fastest, works great on CPU, good for camera Q^&A
+echo  [1] moondream  ~1.7 GB  Fastest, works great on CPU, good for camera Q^&A
 echo  [2] llava:7b    ~4.5 GB  Better quality, still runs on CPU (slower)
 echo  [3] Both models (recommended if you have space)
 echo.
@@ -49,14 +49,14 @@ set /p choice="Enter choice [1/2/3]: "
 if "%choice%"=="1" goto pull_moondream
 if "%choice%"=="2" goto pull_llava
 if "%choice%"=="3" goto pull_both
-echo Invalid choice, defaulting to moondream2.
+echo Invalid choice, defaulting to moondream.
 
 :pull_moondream
 echo.
-echo  [*] Pulling moondream2 (~1.7 GB)...
-ollama pull moondream2
+echo  [*] Pulling moondream (~1.7 GB)...
+ollama pull moondream
 echo.
-echo  [OK] moondream2 ready!
+echo  [OK] moondream ready!
 goto done
 
 :pull_llava
@@ -69,8 +69,8 @@ goto done
 
 :pull_both
 echo.
-echo  [*] Pulling moondream2 (~1.7 GB)...
-ollama pull moondream2
+echo  [*] Pulling moondream (~1.7 GB)...
+ollama pull moondream
 echo.
 echo  [*] Pulling llava:7b (~4.5 GB)...
 ollama pull llava:7b

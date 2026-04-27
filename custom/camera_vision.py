@@ -1,9 +1,9 @@
 """Camera / webcam vision plugin — capture a webcam frame and answer questions
-using Ollama's local vision model (moondream2 by default, or llava:7b).
+using Ollama's local vision model (moondream by default, or llava:7b).
 
 This plugin runs 100% locally — no cloud API key needed for vision.
 Ollama must be running with a vision model pulled:
-    ollama pull moondream2        # ~1.7 GB, fast on CPU
+    ollama pull moondream        # ~1.7 GB, fast on CPU
     ollama pull llava:7b          # ~4.5 GB, better quality
 
 Usage triggers:
@@ -38,9 +38,9 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-# Priority order: moondream2 (fast, CPU-friendly) → llava:7b → llava
+# Priority order: moondream (fast, CPU-friendly) → llava:7b → llava
 _VISION_MODEL_PREFERENCE = [
-    "moondream2",
+    "moondream",
     "minicpm-v:8b",
     "llava:7b",
     "llava",
@@ -110,7 +110,7 @@ def _capture_webcam(camera_index: int = 0) -> bytes:
 # ---------------------------------------------------------------------------
 
 def _ask_ollama_vision(image_bytes: bytes, question: str, model: str) -> str:
-    """Send image + question to Ollama vision model (moondream2 / llava)."""
+    """Send image + question to Ollama vision model (moondream / llava)."""
     try:
         import httpx
         b64 = base64.b64encode(image_bytes).decode("ascii")
@@ -151,7 +151,7 @@ def _run_camera_vision(question: str, jarvis) -> None:
     if not model:
         jarvis.say(
             "No Ollama vision model found. Please install Ollama and run: "
-            "ollama pull moondream2"
+            "ollama pull moondream"
         )
         return
 

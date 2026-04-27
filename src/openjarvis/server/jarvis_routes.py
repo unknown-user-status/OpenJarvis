@@ -369,7 +369,7 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 # Preference order: fastest CPU-friendly first
 _VISION_MODEL_PREFERENCE = [
-    "moondream2",
+    "moondream",
     "minicpm-v:8b",
     "llava:7b",
     "llava",
@@ -503,7 +503,7 @@ async def jarvis_camera(request: CameraRequest):
             status_code=503,
             detail=(
                 "No Ollama vision model found. "
-                "Install Ollama and run: ollama pull moondream2"
+                "Install Ollama and run: ollama pull moondream"
             ),
         )
 
