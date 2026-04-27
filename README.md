@@ -147,6 +147,35 @@ See the [User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/morning
 
 Full documentation — including Docker deployment, cloud engines, development setup, and tutorials — at **[open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)**.
 
+## Recent Improvements
+
+### Voice Mode v4 — Continuous Conversation (2026-04)
+`jarvis-voice.py` now works like a real conversation — no more pressing Enter before each reply.
+
+- **Hands-free** — Voice Activity Detection (VAD) automatically detects when you start and stop speaking. Just talk.
+- **Conversation memory** — full session history is kept and sent to the LLM on every turn, so Jarvis remembers what you said moments ago and can answer follow-up questions naturally.
+- **Voice-optimised replies** — no markdown or bullet points; short, spoken-style answers.
+- Launch via `OpenJarvis-Voice.bat` or `uv run python jarvis-voice.py`.
+
+> **Tip:** if your mic is sensitive, raise `ENERGY_THRESHOLD` at the top of `jarvis-voice.py` (e.g. `0.025`) to reduce false triggers.
+
+### Model Download — Correct Qwen3 Tags + Engine Fix (2026-04)
+- Fixed "Model pulling is only supported with the Ollama engine" error that appeared when any cloud API key was set alongside Ollama. The engine-detection now walks the full wrapper chain (`InstrumentedEngine → GuardrailsEngine → MultiEngine`).
+- Corrected model catalogue: replaced nonexistent `qwen3.5:*` tags with the real Ollama tags — `qwen3:0.6b / 1.7b / 4b / 8b / 14b / 30b-a3b / 32b` — and added `qwen2.5vl` vision models.
+
+### Data Sources — Upload & Document Management (2026-04)
+- Drag-and-drop file upload zone with client-side file-type and 10 MB size validation.
+- Uploaded documents panel: lists every ingested document (title, chunk count, type) with per-document delete.
+- Backend: `GET /v1/connectors/upload/docs` and `DELETE /v1/connectors/upload/docs/{doc_id}` endpoints; 10 MB server-side guard.
+
+### Chat — File Attachments via Paperclip (2026-04)
+- Paperclip button in the chat input bar opens a file picker (txt, md, csv, py, js, json, and more).
+- Selected files appear as chips above the input; their content is prepended to the message as fenced code blocks so the model can read them.
+- Send button activates when attachments are present even with no typed text.
+
+### Chat — Visible Error Messages (2026-04)
+- Generation errors (e.g. model not found) now render as a red banner with a warning icon instead of appearing as a normal assistant message.
+
 ## Contributing
 
 We welcome contributions! See the [Contributing Guide](CONTRIBUTING.md) for incentives, contribution types, and the PR process.
