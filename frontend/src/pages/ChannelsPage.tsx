@@ -14,8 +14,8 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import {
   MessageSquare, Send, Loader2, Wifi, WifiOff,
-  Plus, Trash2, CheckCircle, XCircle, ExternalLink,
-  ChevronRight, Bot, User, RefreshCw, Info,
+  Trash2, CheckCircle, XCircle, ExternalLink,
+  ChevronRight, Bot, User, RefreshCw, Info, QrCode,
 } from 'lucide-react';
 import { getBase } from '../lib/api';
 
@@ -516,6 +516,203 @@ function ChannelSetupPanel({
 }
 
 // ---------------------------------------------------------------------------
+// WhatsApp Baileys — QR code scan panel
+// ---------------------------------------------------------------------------
+
+function WhatsAppBaileysPanel({ base }: { base: string }) {
+  const [status, setStatus] = useState('disconnected');
+  const [qr, setQr] = useState(''); // base64 PNG
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  };
+
+  const pollQr = useCallback(async () => {
+    try {
+      const r = await fetch(`${base}/api/channels/whatsapp_baileys/qr`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setStatus(d.status);
+      setQr(d.qr ?? '');
+      if (d.connected) stopPoll();
+    } catch { /* network error, keep polling */ }
+  }, [base]);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    setError(null);
+    try {
+      const r = await fetch(`${base}/api/channels/whatsapp_baileys/connect`, { method: 'POST' });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail ?? r.statusText); }
+      // Start polling for QR
+      stopPoll();
+      pollRef.current = setInterval(pollQr, 2000);
+      pollQr();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    stopPoll();
+    await fetch(`${base}/api/channels/whatsapp_baileys/disconnect`, { method: 'POST' });
+    setStatus('disconnected');
+    setQr('');
+  };
+
+  useEffect(() => {
+    // Check current status on mount
+    pollQr();
+    return stopPoll;
+  }, [pollQr]);
+
+  const isConnected = status === 'connected';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '24px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+        <span style={{ fontSize: 36 }}>💚</span>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#e2e8f0', marginBottom: 4 }}>
+            WhatsApp (Personal)
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b' }}>
+            Connect your personal WhatsApp by scanning a QR code
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <StatusDot status={isConnected ? 'connected' : status === 'waiting_qr' ? 'connecting' : 'disconnected'} />
+            <span style={{ fontSize: 11, color: isConnected ? '#22c55e' : '#f59e0b' }}>
+              {isConnected ? 'CONNECTED — Jarvis auto-replies' :
+               status === 'waiting_qr' ? 'SCAN QR CODE' :
+               status === 'starting' ? 'STARTING…' : 'DISCONNECTED'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Setup steps */}
+      <div style={{
+        background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.15)',
+        borderRadius: 10, padding: '16px', marginBottom: 20,
+      }}>
+        <div style={{ fontSize: 11, color: '#22c55e', letterSpacing: '0.12em', fontWeight: 700, marginBottom: 12 }}>
+          HOW IT WORKS
+        </div>
+        {[
+          'Click Connect below — a QR code will appear',
+          'Open WhatsApp on your phone → tap ⋮ → Linked Devices → Link a Device',
+          'Point your camera at the QR code',
+          'Done! Text anything to yourself or have someone text your number — Jarvis auto-replies',
+        ].map((step, i) => (
+          <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
+            <span style={{
+              flexShrink: 0, width: 20, height: 20, borderRadius: '50%',
+              background: 'rgba(34,197,94,0.2)', color: '#22c55e',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 700,
+            }}>{i + 1}</span>
+            <span style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>{step}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* QR Code display */}
+      {status === 'waiting_qr' && qr && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          background: '#fff', borderRadius: 12, padding: 20, marginBottom: 20,
+          border: '2px solid rgba(34,197,94,0.4)',
+          boxShadow: '0 0 30px rgba(34,197,94,0.1)',
+        }}>
+          <div style={{ fontSize: 12, color: '#334155', marginBottom: 12, fontWeight: 600 }}>
+            Scan with WhatsApp
+          </div>
+          {qr.startsWith('iVBOR') || qr.length > 200 ? (
+            <img src={`data:image/png;base64,${qr}`} alt="WhatsApp QR Code"
+              style={{ width: 220, height: 220, imageRendering: 'pixelated' }} />
+          ) : (
+            <div style={{ fontFamily: 'monospace', fontSize: 8, lineHeight: 1.2, color: '#000', wordBreak: 'break-all' }}>
+              {qr}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 12 }}>
+            Scanning for new QR every 2s…
+          </div>
+        </div>
+      )}
+
+      {/* Connected state */}
+      {isConnected && (
+        <div style={{
+          padding: '16px', borderRadius: 10, marginBottom: 20,
+          background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#86efac', marginBottom: 8 }}>
+            <CheckCircle size={16} />
+            <span style={{ fontWeight: 600, fontSize: 13 }}>WhatsApp Connected!</span>
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.7 }}>
+            Jarvis is now listening to your WhatsApp messages and will auto-reply.<br />
+            You can send commands like:<br />
+            <code style={{ color: '#a78bfa' }}>"what time is it"</code>,{' '}
+            <code style={{ color: '#a78bfa' }}>"tell me a joke"</code>,{' '}
+            <code style={{ color: '#a78bfa' }}>"weather today"</code>,{' '}
+            <code style={{ color: '#a78bfa' }}>"latest news"</code>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 8, marginBottom: 14,
+          background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
+          color: '#fca5a5', fontSize: 12,
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Buttons */}
+      <div style={{ display: 'flex', gap: 10 }}>
+        {isConnected ? (
+          <button onClick={handleDisconnect} style={{
+            padding: '11px 24px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: 'linear-gradient(135deg, #7f1d1d, #991b1b)',
+            color: '#fff', fontWeight: 600, fontSize: 13,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <XCircle size={16} /> Disconnect
+          </button>
+        ) : (
+          <button onClick={handleConnect} disabled={connecting || status === 'waiting_qr' || status === 'starting'} style={{
+            padding: '11px 24px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: connecting || status === 'waiting_qr' || status === 'starting'
+              ? 'rgba(34,197,94,0.15)'
+              : 'linear-gradient(135deg, #14532d, #166534)',
+            color: '#fff', fontWeight: 600, fontSize: 13,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            {connecting || status === 'starting'
+              ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Starting…</>
+              : status === 'waiting_qr'
+              ? <><QrCode size={16} /> Waiting for scan…</>
+              : <><QrCode size={16} /> Connect WhatsApp</>}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // Main ChannelsPage
 // ---------------------------------------------------------------------------
 
@@ -648,6 +845,8 @@ export default function ChannelsPage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {selected === 'webchat' ? (
             <WebChatPanel base={base} />
+          ) : selected === 'whatsapp_baileys' ? (
+            <WhatsAppBaileysPanel base={base} />
           ) : selectedChannel ? (
             <ChannelSetupPanel
               key={selected}

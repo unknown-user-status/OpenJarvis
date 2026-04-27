@@ -7,29 +7,38 @@ GET  /api/channels
 
 POST /api/channels/{channel}/connect
     Connect a channel using credentials from request body.
-    Body: {bot_token?, app_token?, webhook_url?, ...}
 
 POST /api/channels/{channel}/disconnect
     Disconnect a running channel.
 
 POST /api/channels/{channel}/send
-    Send a message via a connected channel.
-    Body: {content, conversation_id?}
+    Send a message (and optionally an image) via a connected channel.
+    Body: {content, conversation_id?, image_b64?}
 
 GET  /api/channels/{channel}/status
     Get status of a specific channel.
 
 POST /api/channels/webchat/message
-    Submit a message to the built-in WebChat channel and get a Jarvis reply.
-    Body: {text, conversation_id?}
-    This is the simplest way to chat — no external accounts needed.
+    Built-in no-setup chat.  Body: {text, conversation_id?}
+
+POST /api/channels/whatsapp_baileys/connect
+    Start WhatsApp Baileys bridge (QR-code auth via polling).
+
+GET  /api/channels/whatsapp_baileys/qr
+    Poll for the latest QR code string (empty string when connected).
+
+POST /api/channels/telegram/photo
+    Send a photo + caption via Telegram.
+    Body: {chat_id, image_b64, caption?}
 """
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import pathlib
+import queue
 import sys
 import threading
 from typing import Any, Dict, List, Optional
@@ -140,14 +149,34 @@ SUPPORTED_CHANNELS = {
         "easy": False,
     },
     "whatsapp": {
-        "name": "WhatsApp",
-        "description": "WhatsApp Business API messaging",
+        "name": "WhatsApp Business",
+        "description": "WhatsApp Business Cloud API (requires Meta developer account)",
         "icon": "📱",
         "fields": [
             {"key": "access_token", "label": "Access Token", "placeholder": "EAA..."},
             {"key": "phone_number_id", "label": "Phone Number ID", "placeholder": ""},
         ],
         "easy": False,
+        "setup_url": "https://developers.facebook.com/",
+        "setup_steps": [
+            "Go to developers.facebook.com → Create App → Business",
+            "Add 'WhatsApp' product → Get Phone Number ID and Temp Access Token",
+            "Paste both below and click Connect",
+            "Note: send-only until you set up a webhook for incoming messages",
+        ],
+    },
+    "whatsapp_baileys": {
+        "name": "WhatsApp (Personal)",
+        "description": "Connect your personal WhatsApp by scanning a QR code — bidirectional",
+        "icon": "💚",
+        "fields": [],
+        "easy": True,
+        "setup_steps": [
+            "Click Connect — a QR code will appear",
+            "Open WhatsApp on your phone → Settings → Linked Devices → Link a Device",
+            "Scan the QR code",
+            "Done! Any message sent to your WhatsApp that mentions Jarvis gets an auto-reply",
+        ],
     },
 }
 
@@ -248,6 +277,13 @@ class ConnectRequest(BaseModel):
 class SendRequest(BaseModel):
     content: str
     conversation_id: str = ""
+    image_b64: Optional[str] = None   # optional image to send along with content
+
+
+class TelegramPhotoRequest(BaseModel):
+    chat_id: str
+    image_b64: str
+    caption: str = ""
 
 
 class WebChatMessage(BaseModel):
@@ -260,6 +296,14 @@ class WebChatMessage(BaseModel):
 # ---------------------------------------------------------------------------
 
 _WEBCHAT_HISTORY: Dict[str, List[Dict[str, str]]] = {}
+
+# ---------------------------------------------------------------------------
+# WhatsApp Baileys state (QR code + status tracking)
+# ---------------------------------------------------------------------------
+
+_BAILEYS_QR: str = ""          # latest QR string, empty when connected
+_BAILEYS_STATUS: str = "disconnected"
+_BAILEYS_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +407,10 @@ async def connect_channel(channel_id: str, req: ConnectRequest):
         if not req.access_token or not req.phone_number_id:
             raise HTTPException(status_code=400, detail="access_token and phone_number_id required")
         kwargs = {"access_token": req.access_token, "phone_number_id": req.phone_number_id}
+
+    elif channel_id == "whatsapp_baileys":
+        # Handled separately by the dedicated endpoint
+        raise HTTPException(status_code=400, detail="Use POST /api/channels/whatsapp_baileys/connect")
 
     elif channel_id == "webchat":
         pass  # no credentials needed
@@ -490,6 +538,199 @@ async def webchat_clear(conversation_id: str):
     """Clear chat history for a conversation."""
     _WEBCHAT_HISTORY.pop(conversation_id, None)
     return {"ok": True, "conversation_id": conversation_id}
+
+
+# ---------------------------------------------------------------------------
+# Telegram — send photo via Bot API
+# ---------------------------------------------------------------------------
+
+@channel_router.post("/telegram/photo")
+async def telegram_send_photo(req: TelegramPhotoRequest):
+    """Send a photo + caption to a Telegram chat.
+
+    Useful for sharing camera snapshots, charts, screenshots, etc.
+    The Telegram channel must be connected first.
+    """
+    with _CHANNEL_LOCK:
+        instance = _ACTIVE_CHANNELS.get("telegram")
+    if not instance:
+        raise HTTPException(status_code=409, detail="Telegram is not connected")
+
+    token = getattr(instance, "_token", None)
+    if not token:
+        raise HTTPException(status_code=500, detail="No Telegram token found on instance")
+
+    try:
+        import httpx
+        img_bytes = base64.b64decode(req.image_b64)
+        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        files = {"photo": ("photo.jpg", img_bytes, "image/jpeg")}
+        data = {"chat_id": req.chat_id}
+        if req.caption:
+            data["caption"] = req.caption[:1024]
+
+        resp = httpx.post(url, data=data, files=files, timeout=15.0)
+        if resp.status_code >= 300:
+            raise HTTPException(status_code=500, detail=f"Telegram API error: {resp.text[:200]}")
+        return {"ok": True, "chat_id": req.chat_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Photo send failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp Baileys — personal WhatsApp via QR-code auth
+# ---------------------------------------------------------------------------
+
+def _start_baileys_bridge() -> None:
+    """Start the Baileys Node.js bridge in a background thread, updating QR state."""
+    global _BAILEYS_QR, _BAILEYS_STATUS
+
+    _ensure_src_path()
+    bridge_src = pathlib.Path(__file__).parents[2] / "channels" / "whatsapp_baileys_bridge"
+    bridge_js = bridge_src / "dist" / "bridge.js"
+    auth_dir = pathlib.Path.home() / ".openjarvis" / "whatsapp_baileys" / "auth"
+    auth_dir.mkdir(parents=True, exist_ok=True)
+
+    if not bridge_js.exists():
+        logger.error("Baileys bridge not compiled — run: npm run build in %s", bridge_src)
+        with _BAILEYS_LOCK:
+            _BAILEYS_STATUS = "error"
+        return
+
+    import subprocess
+    import json as _json
+
+    def _thread():
+        global _BAILEYS_QR, _BAILEYS_STATUS
+        try:
+            proc = subprocess.Popen(
+                ["node", str(bridge_js), "--auth-dir", str(auth_dir)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+            with _CHANNEL_LOCK:
+                # Store proc reference so we can send commands
+                _ACTIVE_CHANNELS["whatsapp_baileys"] = proc
+
+            for line in proc.stdout:  # type: ignore[union-attr]
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = _json.loads(line)
+                except Exception:
+                    continue
+
+                etype = evt.get("type", "")
+                if etype == "qr":
+                    with _BAILEYS_LOCK:
+                        _BAILEYS_QR = evt.get("data", "")
+                        _BAILEYS_STATUS = "waiting_qr"
+                    # Generate QR image as base64 PNG
+                    try:
+                        import qrcode  # type: ignore
+                        import io
+                        img = qrcode.make(evt["data"])
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        with _BAILEYS_LOCK:
+                            _BAILEYS_QR = base64.b64encode(buf.getvalue()).decode()
+                    except ImportError:
+                        pass  # keep raw string if qrcode not installed
+
+                elif etype == "status":
+                    s = evt.get("status", "disconnected")
+                    with _BAILEYS_LOCK:
+                        _BAILEYS_STATUS = s
+                        if s == "connected":
+                            _BAILEYS_QR = ""  # clear QR once connected
+
+                elif etype == "message":
+                    # Auto-reply via Jarvis
+                    jid = evt.get("jid", "")
+                    text = evt.get("text", "")
+                    if text:
+                        reply = _get_jarvis_reply(text)
+                        try:
+                            cmd = _json.dumps({"type": "send", "jid": jid, "text": reply})
+                            proc.stdin.write(cmd + "\n")  # type: ignore[union-attr]
+                            proc.stdin.flush()  # type: ignore[union-attr]
+                        except Exception as exc:
+                            logger.warning("Baileys send failed: %s", exc)
+
+        except Exception as exc:
+            logger.error("Baileys bridge crashed: %s", exc)
+            with _BAILEYS_LOCK:
+                _BAILEYS_STATUS = "error"
+
+    t = threading.Thread(target=_thread, daemon=True, name="baileys-bridge")
+    t.start()
+
+
+@channel_router.post("/whatsapp_baileys/connect")
+async def whatsapp_baileys_connect():
+    """Start the WhatsApp Baileys bridge.
+
+    If already connected, does nothing.  Otherwise launches the Node.js bridge
+    and begins QR-code authentication.  Poll GET /whatsapp_baileys/qr for the
+    QR code to display, then scan with your phone.
+    """
+    global _BAILEYS_STATUS, _BAILEYS_QR
+    with _BAILEYS_LOCK:
+        status = _BAILEYS_STATUS
+
+    if status in ("connected", "waiting_qr"):
+        return {"ok": True, "status": status, "message": "Bridge already running"}
+
+    with _BAILEYS_LOCK:
+        _BAILEYS_STATUS = "starting"
+        _BAILEYS_QR = ""
+
+    threading.Thread(target=_start_baileys_bridge, daemon=True).start()
+    return {"ok": True, "status": "starting", "message": "Bridge starting — poll /qr for QR code"}
+
+
+@channel_router.post("/whatsapp_baileys/disconnect")
+async def whatsapp_baileys_disconnect():
+    """Stop the WhatsApp Baileys bridge."""
+    global _BAILEYS_STATUS, _BAILEYS_QR
+    with _CHANNEL_LOCK:
+        proc = _ACTIVE_CHANNELS.pop("whatsapp_baileys", None)
+    if proc and hasattr(proc, "stdin") and proc.stdin:
+        try:
+            import json as _json
+            proc.stdin.write(_json.dumps({"type": "disconnect"}) + "\n")
+            proc.stdin.flush()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    with _BAILEYS_LOCK:
+        _BAILEYS_STATUS = "disconnected"
+        _BAILEYS_QR = ""
+    return {"ok": True, "status": "disconnected"}
+
+
+@channel_router.get("/whatsapp_baileys/qr")
+async def whatsapp_baileys_qr():
+    """Return the current QR code (base64 PNG) and bridge status.
+
+    When status is 'connected', qr will be empty — stop polling.
+    When status is 'waiting_qr', display the qr image for scanning.
+    """
+    with _BAILEYS_LOCK:
+        return {
+            "status": _BAILEYS_STATUS,
+            "qr": _BAILEYS_QR,   # base64 PNG or empty string
+            "connected": _BAILEYS_STATUS == "connected",
+        }
 
 
 __all__ = ["channel_router"]

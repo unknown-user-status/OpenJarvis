@@ -74,8 +74,7 @@ async function main(): Promise<void> {
 
       if (connection === "close") {
         const statusCode =
-          (lastDisconnect?.error as any)?.output?.statusCode ??
-          DisconnectReason.unknown;
+          (lastDisconnect?.error as any)?.output?.statusCode ?? 428;
 
         if (statusCode === DisconnectReason.loggedOut) {
           emit({ type: "status", status: "disconnected" });
