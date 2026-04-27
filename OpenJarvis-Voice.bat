@@ -1,5 +1,5 @@
 @echo off
-title OpenJarvis Voice Mode (v3)
+title OpenJarvis Voice Mode (v4 — Continuous)
 
 :: Load API keys from Windows environment
 for /f "delims=" %%i in ('powershell -Command "[System.Environment]::GetEnvironmentVariable('GROQ_API_KEY','User')"') do set GROQ_API_KEY=%%i

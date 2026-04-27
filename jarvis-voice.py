@@ -1,36 +1,35 @@
 """
-OpenJarvis Voice Mode  (v3 — MK37-Enhanced)
-=======================================
-Features
---------
-* Greeting on startup with time-aware salutation
-* Speak during 6-second recording window
-* Smart routing:
-    - Plugin commands (news, time, weather, note, wiki, youtube, …) → plugin system
-    - Machine-control commands (open, click, type, …) → DesktopAgent
-    - Everything else → Groq LLaMA Q&A
-* Optional TTS via Groq Orpheus (auto-probed on first use)
-* Press Ctrl+C or say "exit / quit / goodbye" to stop
+OpenJarvis Voice Mode  (v4 — Continuous Conversation)
+======================================================
+Changes from v3
+---------------
+* NO more "Press ENTER" — Jarvis listens continuously.
+* Voice Activity Detection (VAD) using numpy energy — no extra packages.
+  Automatically detects when you START and STOP talking.
+* Persistent conversation history — Jarvis remembers everything you said
+  in this session, making it feel like a real back-and-forth conversation.
+* Full chat history sent to the LLM on every turn.
+* Silence timeout: after 0.8 s of quiet after speech, recording ends.
+* Wake-word optional — just speak naturally at any time.
+
+Usage
+-----
+  python jarvis-voice.py            # starts listening immediately
+  Say "exit", "quit", or "goodbye"  # to stop
 
 Desktop control examples
 -------------------------
   "Open Chrome"
   "Close Notepad"
   "Type hello world in Notepad"
-  "Search for the weather"
 
 Plugin command examples
 ------------------------
   "What time is it"
-  "Tell me today's date"
   "Show me the news"
-  "Tell me about black holes"
-  "Note: Buy groceries tomorrow"
-  "Where am I"
-  "System info"
-  "Play Bohemian Rhapsody on YouTube"
   "Weather in Tokyo"
-  "Tell a joke"
+  "Play Bohemian Rhapsody on YouTube"
+  "Note: Buy groceries tomorrow"
 """
 
 from __future__ import annotations
@@ -43,6 +42,8 @@ import random
 import datetime
 import tempfile
 import pathlib
+import threading
+import queue
 
 import sounddevice as sd
 import soundfile as sf
@@ -64,21 +65,34 @@ if not GROQ_API_KEY:
     input("Press Enter to close...")
     sys.exit(1)
 
-from openai import OpenAI  # noqa: E402  (after path bootstrap)
+from openai import OpenAI  # noqa: E402
 
 _GROQ = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
-SAMPLE_RATE = 16000
-CHANNELS = 1
-RECORD_SECONDS = 6
+# ── Audio settings ─────────────────────────────────────────────────────────────
+SAMPLE_RATE   = 16000
+CHANNELS      = 1
+FRAME_MS      = 30          # VAD frame size in ms
+FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000)  # 480 samples per frame
+
+# VAD thresholds (tune if mic is noisy)
+ENERGY_THRESHOLD   = 0.015   # RMS above this = speech
+SILENCE_TIMEOUT_S  = 0.9     # seconds of silence after speech to stop recording
+PRE_ROLL_FRAMES    = 5       # frames of audio captured before speech detected (avoids clipping)
+MAX_RECORD_S       = 30      # hard cap so it never hangs
+
+# ── Conversation history ───────────────────────────────────────────────────────
+# Each entry: {"role": "user"|"assistant", "content": str}
+_HISTORY: list[dict] = []
+_MAX_HISTORY = 20  # keep last N turns to avoid token overflow
+
 
 # ── Plugin registry ─────────────────────────────────────────────────────────────
 
 def _load_plugins() -> None:
-    """Import all custom plugins so their @plugin decorators register them."""
     try:
         from openjarvis.plugins import load_directory
-        n = load_directory(_CUSTOM)
+        load_directory(_CUSTOM)
     except Exception as exc:
         print(f"  [warning] Plugin loading failed: {exc}")
 
@@ -88,7 +102,6 @@ _TTS_ENABLED: bool | None = None
 
 
 def _try_speak(text: str) -> bool:
-    """Speak *text* via Groq TTS if available. Returns True on success."""
     global _TTS_ENABLED
     if _TTS_ENABLED is False:
         return False
@@ -140,33 +153,90 @@ def _time_greeting() -> str:
 def _startup_greeting() -> None:
     greeting = _time_greeting()
     msg = (
-        f"{greeting}! I am OpenJarvis — online and ready. "
-        "You can ask me questions, control your machine, check the news, "
-        "play YouTube videos, take notes, and much more. "
-        "Press Enter when you are ready to speak."
+        f"{greeting}! I am OpenJarvis — online and listening. "
+        "Just speak naturally at any time. I will respond right away. "
+        "Say 'goodbye' to stop."
     )
     _say(msg)
 
 
-# ── Audio recording ───────────────────────────────────────────────────────────
+# ── VAD-based continuous recording ────────────────────────────────────────────
 
-def record_audio(seconds: int = RECORD_SECONDS) -> np.ndarray | None:
-    frames: list[np.ndarray] = []
+def _rms(frame: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
 
-    def callback(indata, frame_count, time_info, status):
-        frames.append(indata.copy())
 
-    print(f"\n  >> Recording for {seconds} seconds... SPEAK NOW!")
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
-                        dtype="float32", callback=callback):
-        for i in range(seconds, 0, -1):
-            print(f"     {i}...", end="\r", flush=True)
-            time.sleep(1)
+def record_until_silence() -> np.ndarray | None:
+    """
+    Record audio until the speaker stops talking.
+    Returns a numpy float32 array, or None if no speech detected.
 
-    print("  >> Done recording.          ")
-    if not frames:
+    Algorithm:
+    1. Fill a pre-roll ring buffer of PRE_ROLL_FRAMES frames.
+    2. When energy exceeds ENERGY_THRESHOLD → speech started.
+    3. Keep recording until SILENCE_TIMEOUT_S of consecutive silence.
+    4. Return pre-roll + speech audio.
+    """
+    audio_q: queue.Queue[np.ndarray] = queue.Queue()
+
+    def callback(indata, frames, time_info, status):
+        audio_q.put(indata[:, 0].copy())  # mono
+
+    pre_roll: list[np.ndarray] = []
+    speech_frames: list[np.ndarray] = []
+    speech_started = False
+    silent_frame_count = 0
+    silence_frames_needed = int(SILENCE_TIMEOUT_S * 1000 / FRAME_MS)
+    max_frames = int(MAX_RECORD_S * 1000 / FRAME_MS)
+    total_frames = 0
+
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=CHANNELS,
+        dtype="float32",
+        blocksize=FRAME_SAMPLES,
+        callback=callback,
+    ):
+        print("  >> Listening...", end="\r", flush=True)
+        while True:
+            try:
+                frame = audio_q.get(timeout=2.0)
+            except queue.Empty:
+                break
+
+            energy = _rms(frame)
+            total_frames += 1
+
+            if not speech_started:
+                # Pre-roll buffer
+                pre_roll.append(frame)
+                if len(pre_roll) > PRE_ROLL_FRAMES:
+                    pre_roll.pop(0)
+
+                if energy > ENERGY_THRESHOLD:
+                    speech_started = True
+                    print("  >> Speech detected — recording...", end="\r", flush=True)
+                    speech_frames.extend(pre_roll)
+                    speech_frames.append(frame)
+                    silent_frame_count = 0
+            else:
+                speech_frames.append(frame)
+                if energy < ENERGY_THRESHOLD:
+                    silent_frame_count += 1
+                    if silent_frame_count >= silence_frames_needed:
+                        print("  >> Done.                              ")
+                        break
+                else:
+                    silent_frame_count = 0
+
+            if total_frames >= max_frames:
+                print("  >> Max recording time reached.")
+                break
+
+    if not speech_started or len(speech_frames) < 3:
         return None
-    return np.concatenate(frames, axis=0)
+
+    return np.concatenate(speech_frames, axis=0)
 
 
 # ── STT ──────────────────────────────────────────────────────────────────────
@@ -188,16 +258,16 @@ def transcribe(audio: np.ndarray) -> str:
         os.unlink(tmp_path)
 
 
-# ── LLM Q&A ──────────────────────────────────────────────────────────────────
+# ── LLM Q&A with conversation history ─────────────────────────────────────────
 
 def _build_system_prompt() -> str:
-    """Build a memory-aware system prompt."""
     base = (
-        "You are OpenJarvis, an advanced AI assistant — the most capable version ever built. "
+        "You are Jarvis, an advanced AI assistant — loyal, witty, and highly capable. "
         "You have persistent memory, can control computers, search the web, manage files, "
         "set reminders, play music, and much more. "
-        "Give concise, helpful answers. Be accurate. Keep responses under 3 sentences "
-        "unless the question genuinely needs more detail. Address the user naturally."
+        "Keep responses concise and conversational — 1-3 sentences unless more is genuinely needed. "
+        "You are talking to the user via voice, so do NOT use markdown, bullet points, or lists. "
+        "Speak naturally as if in a real conversation. Address the user warmly."
     )
     try:
         from openjarvis.memory.memory_manager import load_memory, format_memory_for_prompt
@@ -211,58 +281,52 @@ def _build_system_prompt() -> str:
 
 
 def _llm_answer(question: str) -> str:
-    system_prompt = _build_system_prompt()
+    global _HISTORY
+
+    # Add user message to history
+    _HISTORY.append({"role": "user", "content": question})
+
+    # Trim history to avoid token overflow (keep last N entries)
+    if len(_HISTORY) > _MAX_HISTORY:
+        _HISTORY = _HISTORY[-_MAX_HISTORY:]
+
+    messages = [{"role": "system", "content": _build_system_prompt()}] + _HISTORY
+
     response = _GROQ.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question},
-        ],
-        max_tokens=512,
+        messages=messages,
+        max_tokens=256,
         temperature=0.7,
     )
-    return response.choices[0].message.content or ""
+    answer = response.choices[0].message.content or ""
+
+    # Add assistant reply to history
+    _HISTORY.append({"role": "assistant", "content": answer})
+
+    return answer
 
 
 # ── Routing logic ─────────────────────────────────────────────────────────────
 
-# Keywords whose presence routes to the PLUGIN system first
 _PLUGIN_TRIGGERS = (
-    # Time / date
     "time", "date", "day", "today",
-    # News
     "news", "headlines", "top news",
-    # Weather
     "weather",
-    # Notes
     "note", "make a note", "write this down", "remember this", "read notes", "show notes", "my notes",
-    # Memory (MK37)
     "remember", "memorize", "what do you know", "my memory", "show memory", "forget", "recall",
-    # Jokes
     "joke", "tell a joke",
-    # Wikipedia / Q&A
     "tell me about", "who is", "what is", "wikipedia", "wiki",
-    # System info
     "system", "cpu", "ram", "battery", "disk", "ip address",
-    # Location
     "where am i", "my location", "current location", "where is",
-    # YouTube / music
     "play", "youtube", "play music", "search youtube", "play on youtube",
-    # Search
     "search", "google", "web search", "search web", "look up", "find information",
-    # Calculator
     "calculate",
-    # Email
     "email", "send email",
-    # App launcher
     "open ", "launch", "start app",
-    # File manager (MK37)
     "list files", "show files", "read file", "find file", "disk usage", "disk space",
     "create file", "delete file", "rename file", "move file",
-    # Desktop manager (MK37)
     "list desktop", "show desktop files", "organize desktop", "clean desktop",
     "set wallpaper", "wallpaper from url", "change wallpaper",
-    # Computer settings (MK37)
     "volume up", "volume down", "mute", "set volume",
     "brightness up", "brightness down",
     "minimize window", "maximize window", "fullscreen",
@@ -272,15 +336,10 @@ _PLUGIN_TRIGGERS = (
     "scroll up", "scroll down",
     "copy", "paste", "undo", "redo", "select all", "save file",
     "type text", "take screenshot", "capture screen",
-    # Reminders (MK37)
     "remind me", "reminder", "set reminder", "set a reminder",
-    # Screen analysis (MK37)
     "analyze screen", "what's on my screen", "look at screen", "screen analysis", "what do you see",
-    # Greetings
-    "hello", "hi", "hey", "good morning", "good evening", "good afternoon", "goodbye", "bye",
 )
 
-# Keywords that route specifically to desktop-control (DesktopAgent) — low-level mouse/keyboard ops
 _CONTROL_KEYWORDS = (
     "click on ", "double click on", "right click on", "drag ",
     "press key ", "key down ", "key up ",
@@ -291,22 +350,15 @@ _CONTROL_KEYWORDS = (
 
 
 def _classify(text: str) -> str:
-    """Return 'plugin', 'control', or 'qa'."""
     lower = text.lower().strip()
-
-    # Desktop control (low-level machine ops)
     if any(kw in lower for kw in _CONTROL_KEYWORDS):
         return "control"
-
-    # Plugin commands
     if any(lower.startswith(kw) or (kw.strip() in lower) for kw in _PLUGIN_TRIGGERS):
         return "plugin"
-
     return "qa"
 
 
 def _dispatch_plugin(command: str) -> str | None:
-    """Try the plugin system and return output, or None if no match."""
     try:
         from openjarvis.plugins import dispatch, JarvisContext
         ctx = JarvisContext(api_key=GROQ_API_KEY)
@@ -325,74 +377,64 @@ def _control_machine(goal: str) -> str:
         return f"Desktop control failed: {exc}"
 
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
+# ── Command handler ────────────────────────────────────────────────────────────
 
 def _handle(command: str) -> None:
     lower = command.lower().strip()
 
     # Quit
     if lower in ("exit", "quit", "stop", "bye", "goodbye", "go offline", "offline"):
-        farewell = "Alright, going offline. It was a pleasure working with you, sir. Goodbye!"
+        farewell = "Alright, going offline. It was a pleasure talking with you. Goodbye!"
         _say(farewell)
         sys.exit(0)
 
-    # Greeting
+    # Greeting — still respond but also add to history so Jarvis is aware
     if lower in _GREETINGS or lower.rstrip(".! ") in _GREETINGS:
-        _say(random.choice(_GREET_RESPONSES))
+        reply = random.choice(_GREET_RESPONSES)
+        _HISTORY.append({"role": "user", "content": command})
+        _HISTORY.append({"role": "assistant", "content": reply})
+        _say(reply)
         return
 
     kind = _classify(command)
 
     if kind == "plugin":
-        print("  [Plugin mode] Dispatching to plugin system...")
+        print("  [Plugin mode]")
         result = _dispatch_plugin(command)
         if result:
+            # Also log plugin results in history so LLM knows what happened
+            _HISTORY.append({"role": "user", "content": command})
+            _HISTORY.append({"role": "assistant", "content": result})
             _say(result)
             return
-        # If plugin didn't match, fall through to Q&A
         print("  [No plugin matched, falling back to Q&A]")
 
     if kind == "control":
-        print("  [Desktop Control mode] Jarvis is taking control...")
+        print("  [Desktop Control mode]")
         result = _control_machine(command)
+        _HISTORY.append({"role": "user", "content": command})
+        _HISTORY.append({"role": "assistant", "content": result})
         _say(result)
         return
 
-    # Q&A (also fallback)
+    # Q&A with full conversation history
     print("  Jarvis is thinking...")
     answer = _llm_answer(command)
     _say(answer)
 
 
+# ── Main loop ─────────────────────────────────────────────────────────────────
+
 def main() -> None:
     print("=" * 60)
-    print("  OpenJarvis — Voice Mode  (v3 — MK37 Enhanced)")
-    print("  Powered by Groq (Free) | LLaMA + Whisper + Orpheus TTS")
+    print("  OpenJarvis — Voice Mode  (v4 — Continuous Conversation)")
+    print("  Powered by Groq | LLaMA + Whisper + Orpheus TTS")
     print("=" * 60)
     print()
-    print("  Capabilities:")
-    print("    News / Headlines     →  'Show me the news'")
-    print("    Time & Date          →  'What time is it'")
-    print("    Weather              →  'Weather in London'")
-    print("    Notes                →  'Note: Call dentist at 3pm'")
-    print("    Persistent Memory    →  'Remember my name is Alex'")
-    print("    Wikipedia            →  'Tell me about quantum physics'")
-    print("    YouTube              →  'Play Bohemian Rhapsody'")
-    print("    Web Search           →  'Search web latest AI news'")
-    print("    Apps & websites      →  'Open Chrome'")
-    print("    System info          →  'System status'")
-    print("    File manager         →  'List files desktop'")
-    print("    Desktop manager      →  'Organize desktop'")
-    print("    Computer settings    →  'Volume up' / 'Set volume 50'")
-    print("    Screen analysis      →  'Analyze screen'")
-    print("    Reminders            →  'Remind me 2026-05-01 09:00 dentist'")
-    print("    Location             →  'Where am I'")
-    print("    Email                →  'Send email'")
-    print("    Jokes                →  'Tell me a joke'")
-    print("    Machine control      →  'Click on the start button'")
-    print("    General Q&A          →  Anything else")
-    print()
-    print("  Say 'exit' or 'goodbye' to quit.")
+    print("  Just SPEAK — no button pressing needed.")
+    print("  Jarvis listens, responds, then listens again.")
+    print("  Conversation history is kept for natural back-and-forth.")
+    print("  Say 'goodbye' to quit.")
     print()
 
     _load_plugins()
@@ -400,21 +442,19 @@ def main() -> None:
 
     while True:
         try:
-            print("-" * 60)
-            input("  Press ENTER when ready to speak...")
-            audio = record_audio()
+            audio = record_until_silence()
 
-            if audio is None or np.max(np.abs(audio)) < 0.001:
-                print("  No voice detected, try again.")
+            if audio is None:
+                # No speech detected — just keep listening silently
                 continue
 
             print("  Transcribing...")
             command = transcribe(audio)
             if not command:
-                print("  Could not understand. Please try again.")
+                print("  Could not understand, listening again...")
                 continue
 
-            print(f"\n  You said: \"{command}\"")
+            print(f"\n  You: \"{command}\"")
             _handle(command)
 
         except (KeyboardInterrupt, SystemExit):
@@ -422,7 +462,8 @@ def main() -> None:
             sys.exit(0)
         except Exception as exc:
             print(f"\n  Error: {exc}")
-            print("  Trying again...\n")
+            print("  Continuing...\n")
+            time.sleep(0.5)
 
 
 if __name__ == "__main__":
