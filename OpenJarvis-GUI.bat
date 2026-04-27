@@ -14,11 +14,11 @@ cd /d C:\Users\USER\openjarvis
 
 :: ── Ensure fastapi + uvicorn are installed ────────────────────────────────────
 echo Checking dependencies...
-uv sync --extra server --extra desktop --quiet 2>nul
+uv sync --extra server --quiet 2>nul
 
 :: ── Start API server in background ───────────────────────────────────────────
 echo Starting OpenJarvis API server on port %JARVIS_PORT%...
-start "OpenJarvis-Server" /min cmd /c "cd /d C:\Users\USER\openjarvis && uv run python start_server.py"
+start "OpenJarvis-Server" /min cmd /c "cd /d C:\Users\USER\openjarvis && .venv\Scripts\python.exe start_server.py"
 
 :: ── Wait up to 30s for server to be ready ────────────────────────────────────
 echo Waiting for server to start...

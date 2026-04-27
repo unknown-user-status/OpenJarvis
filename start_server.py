@@ -42,7 +42,7 @@ if _src not in sys.path:
 os.environ.setdefault("LITELLM_LOG", "ERROR")
 os.environ.setdefault("PYTHONUTF8",  "1")
 
-PORT = int(os.environ.get("JARVIS_PORT", "7842"))
+PORT = int(os.environ.get("JARVIS_PORT", "7845"))
 
 logging.basicConfig(level=logging.WARNING)
 for _log in ("openjarvis", "uvicorn", "litellm", "httpx", "httpcore"):
@@ -219,5 +219,6 @@ if __name__ == "__main__":
     print(f"  API:  http://127.0.0.1:{PORT}/v1/")
     print(f"  Docs: http://127.0.0.1:{PORT}/docs")
     print("=" * 56)
+    print("Starting uvicorn...")
 
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
