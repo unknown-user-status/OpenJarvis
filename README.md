@@ -151,13 +151,15 @@ Full documentation — including Docker deployment, cloud engines, development s
 
 ### Intel NPU Integration with OpenVINO (2026-04)
 Integrated Intel NPU/integrated GPU acceleration using OpenVINO framework with Hugging Face models:
-- Added OpenVINO engine for Intel NPU/GPU acceleration with automatic device selection
-- Implemented NPU-optimized models (Phi-3 Mini 4K, TinyLlama 1.1B, Gemma 2B, Llama 3.2 3B)
-- Updated hardware detection to recommend OpenVINO for Intel GPUs
-- Added intelligent model recommendation for NPU devices with INT8 quantization
+- Added OpenVINO engine for Intel NPU/GPU acceleration with automatic device selection (CPU/GPU/NPU/AUTO)
+- Implemented NPU-optimized models (Phi-3 Mini 4K, TinyLlama 1.1B, Gemma 2B, Llama 3.2 3B) with INT8 quantization
+- Updated hardware detection to recommend OpenVINO for Intel GPUs and NPU-optimized models when NPU is available
+- Added intelligent model recommendation for NPU devices with INT8 quantization efficiency (0.3x parameter size)
 - Created NPU configuration panel in Settings UI for device and model selection
 - Achieved 50% memory reduction and 1.5-2x speed improvement with INT8 quantization
 - Expected performance: 3-8 tokens/sec on Intel integrated GPU with shared memory
+- **Note:** OpenVINO requires Python 3.10-3.11 (not compatible with Python 3.14)
+- **Note:** OpenVINO integration is incompatible with vLLM due to protobuf version conflicts
 
 ### Stanford Five-Primitive Architecture Implementation (2026-04)
 Implemented Stanford's OpenJarvis five-primitive architecture across the entire stack:
