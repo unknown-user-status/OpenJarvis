@@ -42,7 +42,7 @@ if _src not in sys.path:
 os.environ.setdefault("LITELLM_LOG", "ERROR")
 os.environ.setdefault("PYTHONUTF8",  "1")
 
-PORT = int(os.environ.get("JARVIS_PORT", "7845"))
+PORT = int(os.environ.get("JARVIS_PORT", "7842"))
 
 logging.basicConfig(level=logging.WARNING)
 for _log in ("openjarvis", "uvicorn", "litellm", "httpx", "httpcore"):

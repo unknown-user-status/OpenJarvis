@@ -15,11 +15,18 @@ from openjarvis.engine._base import (
 from openjarvis.engine._discovery import discover_engines, discover_models, get_engine
 
 # Optional engines — only register if their SDK deps are present
-for _optional in ("cloud", "litellm", "gemma_cpp", "openvino"):
+for _optional in ("cloud", "litellm", "gemma_cpp"):
     try:
         importlib.import_module(f".{_optional}", __name__)
     except ImportError:
         pass
+
+# OpenVINO engine disabled due to dependency conflicts
+# Uncomment when dependency ecosystem stabilizes
+# try:
+#     importlib.import_module(".openvino", __name__)
+# except ImportError:
+#     pass
 
 __all__ = [
     "EngineConnectionError",
