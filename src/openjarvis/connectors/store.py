@@ -341,6 +341,46 @@ class KnowledgeStore(MemoryBackend):
         )
         return results
 
+    def list_docs(
+        self,
+        source: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """Return one summary row per distinct doc_id.
+
+        Each row contains: doc_id, title, source, doc_type, chunk_count,
+        and created_at (earliest chunk timestamp).
+        """
+        params: list = []
+        where = ""
+        if source is not None:
+            where = "WHERE source = ?"
+            params.append(source)
+        rows = self._conn.execute(
+            f"""
+            SELECT doc_id, title, source, doc_type,
+                   COUNT(*) AS chunk_count,
+                   MIN(created_at) AS created_at
+            FROM knowledge_chunks
+            {where}
+            GROUP BY doc_id
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            params + [limit],
+        ).fetchall()
+        return [
+            {
+                "doc_id": r[0],
+                "title": r[1],
+                "source": r[2],
+                "doc_type": r[3],
+                "chunk_count": r[4],
+                "created_at": r[5],
+            }
+            for r in rows
+        ]
+
     def delete(self, doc_id: str) -> bool:
         """Delete all chunks with the given *doc_id*. Returns True if any existed."""
         cur = self._conn.execute(

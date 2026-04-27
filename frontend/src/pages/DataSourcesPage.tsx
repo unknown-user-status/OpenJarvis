@@ -103,21 +103,79 @@ function InlineConnectForm({
 // ---------------------------------------------------------------------------
 
 const ACCEPTED_EXTENSIONS = '.txt,.md,.pdf,.docx,.csv';
+const ACCEPTED_MIME = ['text/plain', 'text/markdown', 'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/csv', 'application/octet-stream'];
+const MAX_FILE_MB = 10;
+
+interface UploadedDoc {
+  doc_id: string;
+  title: string;
+  source: string;
+  doc_type: string;
+  chunk_count: number;
+  created_at: string;
+}
 
 function UploadForm({ onDone }: { onDone?: () => void }) {
   const [tab, setTab] = useState<'paste' | 'upload'>('paste');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
+  const [docs, setDocs] = useState<UploadedDoc[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadDocs = useCallback(async () => {
+    setDocsLoading(true);
+    try {
+      const res = await fetch(`${getBase()}/v1/connectors/upload/docs`);
+      if (res.ok) {
+        const data = await res.json();
+        setDocs(data.docs || []);
+      }
+    } catch { /* server may not be running */ }
+    finally { setDocsLoading(false); }
+  }, []);
+
+  useEffect(() => { loadDocs(); }, [loadDocs]);
+
+  const validateFiles = (selected: File[]): { valid: File[]; errors: string[] } => {
+    const valid: File[] = [];
+    const errors: string[] = [];
+    for (const f of selected) {
+      const ext = '.' + f.name.split('.').pop()!.toLowerCase();
+      if (!ACCEPTED_EXTENSIONS.split(',').includes(ext)) {
+        errors.push(`"${f.name}" — unsupported type (allowed: txt, md, pdf, docx, csv)`);
+        continue;
+      }
+      if (f.size > MAX_FILE_MB * 1024 * 1024) {
+        errors.push(`"${f.name}" — exceeds ${MAX_FILE_MB} MB limit`);
+        continue;
+      }
+      valid.push(f);
+    }
+    return { valid, errors };
+  };
+
+  const addFiles = (selected: File[]) => {
+    const { valid, errors } = validateFiles(selected);
+    if (errors.length) setError(errors.join('\n'));
+    else setError('');
+    setFiles((prev) => {
+      const names = new Set(prev.map((f) => f.name));
+      return [...prev, ...valid.filter((f) => !names.has(f.name))];
+    });
+  };
 
   const handlePaste = async () => {
     if (!content.trim()) return;
-    setBusy(true);
-    setError('');
-    setResult('');
+    setBusy(true); setError(''); setResult('');
     try {
       const res = await fetch(`${getBase()}/v1/connectors/upload/ingest`, {
         method: 'POST',
@@ -130,26 +188,21 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
       }
       const data = await res.json();
       setResult(`Added ${data.chunks_added} chunk${data.chunks_added !== 1 ? 's' : ''} to knowledge base`);
-      setTitle('');
-      setContent('');
+      setTitle(''); setContent('');
+      await loadDocs();
       onDone?.();
     } catch (err: any) {
       setError(err.message || 'Upload failed');
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const handleUpload = async () => {
     if (files.length === 0) return;
-    setBusy(true);
-    setError('');
-    setResult('');
+    setBusy(true); setError(''); setResult('');
     try {
       const formData = new FormData();
       for (const f of files) formData.append('files', f);
       if (title.trim()) formData.append('title', title.trim());
-
       const res = await fetch(`${getBase()}/v1/connectors/upload/ingest/files`, {
         method: 'POST',
         body: formData,
@@ -160,44 +213,73 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
       }
       const data = await res.json();
       setResult(`Added ${data.chunks_added} chunk${data.chunks_added !== 1 ? 's' : ''} from ${files.length} file${files.length !== 1 ? 's' : ''}`);
-      setFiles([]);
-      setTitle('');
+      setFiles([]); setTitle('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      await loadDocs();
       onDone?.();
     } catch (err: any) {
       setError(err.message || 'Upload failed');
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
-  const tabStyle = (active: boolean): React.CSSProperties => ({
-    flex: 1, padding: '6px 0', textAlign: 'center',
-    fontSize: 12, fontWeight: 600, cursor: 'pointer',
-    background: active ? 'var(--color-accent-purple)' : 'transparent',
-    color: active ? 'white' : 'var(--color-text-secondary)',
-    border: 'none', borderRadius: 4,
-  });
+  const handleDelete = async (docId: string) => {
+    setDeletingId(docId);
+    try {
+      const res = await fetch(`${getBase()}/v1/connectors/upload/docs/${docId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      await loadDocs();
+      onDone?.();
+    } catch { /* ignore */ }
+    finally { setDeletingId(null); }
+  };
+
+  // Drag-and-drop handlers
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
+  const onDragLeave = () => setDragOver(false);
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false);
+    const dropped = Array.from(e.dataTransfer.files);
+    addFiles(dropped);
+    setTab('upload');
+  };
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '7px 10px',
     background: 'var(--color-bg)',
     border: '1px solid var(--color-border)',
-    borderRadius: 4, color: 'var(--color-text)',
+    borderRadius: 6, color: 'var(--color-text)',
     fontSize: 12, marginBottom: 6,
     boxSizing: 'border-box' as const,
+    outline: 'none',
   };
+
+  const btnStyle = (disabled: boolean): React.CSSProperties => ({
+    width: '100%', padding: '8px 0',
+    background: disabled ? 'var(--color-disabled-bg)' : 'var(--color-accent)',
+    color: 'var(--color-on-accent)', border: 'none',
+    borderRadius: 6, fontSize: 12,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontWeight: 600, transition: 'opacity 0.15s',
+    opacity: disabled ? 0.6 : 1,
+  });
 
   return (
     <div>
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 10,
-        background: 'var(--color-bg)', borderRadius: 6, padding: 2 }}>
-        <button style={tabStyle(tab === 'paste')} onClick={() => setTab('paste')}>
-          Paste Text
-        </button>
-        <button style={tabStyle(tab === 'upload')} onClick={() => setTab('upload')}>
-          Upload Files
-        </button>
+        background: 'var(--color-bg)', borderRadius: 8, padding: 3,
+        border: '1px solid var(--color-border)' }}>
+        {(['paste', 'upload'] as const).map((t) => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            flex: 1, padding: '5px 0', textAlign: 'center' as const,
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            background: tab === t ? 'var(--color-accent)' : 'transparent',
+            color: tab === t ? 'var(--color-on-accent)' : 'var(--color-text-secondary)',
+            border: 'none', borderRadius: 5, transition: 'all 0.15s',
+          }}>
+            {t === 'paste' ? 'Paste Text' : 'Upload Files'}
+          </button>
+        ))}
       </div>
 
       {/* Title input (shared) */}
@@ -213,70 +295,137 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Paste your text here..."
+            placeholder="Paste your text, notes, or data here..."
             rows={6}
-            style={{
-              ...inputStyle,
-              resize: 'vertical',
-              fontFamily: 'inherit',
-              minHeight: 100,
-            }}
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', minHeight: 110, marginBottom: 8 }}
           />
-          <button
-            onClick={handlePaste}
-            disabled={busy || !content.trim()}
-            style={{
-              width: '100%', padding: 8,
-              background: busy || !content.trim() ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
-              color: 'var(--color-on-accent)', border: 'none',
-              borderRadius: 6, fontSize: 12, cursor: 'pointer',
-            }}
-          >
-            {busy ? 'Adding...' : 'Add to Knowledge Base'}
+          <button onClick={handlePaste} disabled={busy || !content.trim()} style={btnStyle(busy || !content.trim())}>
+            {busy ? 'Adding…' : 'Add to Knowledge Base'}
           </button>
         </>
       )}
 
       {tab === 'upload' && (
         <>
+          {/* Drag-and-drop zone */}
+          <div
+            onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              border: `2px dashed ${dragOver ? 'var(--color-accent)' : 'var(--color-border)'}`,
+              borderRadius: 8, padding: '18px 12px', textAlign: 'center' as const,
+              cursor: 'pointer', marginBottom: 8, transition: 'border-color 0.15s',
+              background: dragOver ? 'color-mix(in srgb, var(--color-accent) 6%, transparent)' : 'var(--color-bg)',
+            }}
+          >
+            <Upload size={20} style={{ color: 'var(--color-text-tertiary)', marginBottom: 4 }} />
+            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+              <span style={{ color: 'var(--color-accent)', fontWeight: 600 }}>Click to browse</span> or drag & drop files here
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 3 }}>
+              .txt · .md · .pdf · .docx · .csv &nbsp;|&nbsp; max {MAX_FILE_MB} MB each
+            </div>
+          </div>
           <input
+            ref={fileInputRef}
             type="file"
             multiple
             accept={ACCEPTED_EXTENSIONS}
-            onChange={(e) => {
-              const selected = Array.from(e.target.files || []);
-              setFiles(selected);
-            }}
-            style={{ ...inputStyle, padding: 6 }}
+            onChange={(e) => addFiles(Array.from(e.target.files || []))}
+            style={{ display: 'none' }}
           />
+          {/* Selected files list */}
           {files.length > 0 && (
-            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
-              {files.map((f) => f.name).join(', ')}
+            <div style={{ marginBottom: 8 }}>
+              {files.map((f, i) => (
+                <div key={f.name} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '4px 8px', borderRadius: 4, marginBottom: 2,
+                  background: 'var(--color-bg-secondary)', fontSize: 11,
+                }}>
+                  <FileText size={12} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text)' }}>
+                    {f.name}
+                  </span>
+                  <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
+                    {(f.size / 1024).toFixed(0)} KB
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setFiles((prev) => prev.filter((_, j) => j !== i)); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)', padding: 0, lineHeight: 1 }}
+                    title="Remove"
+                  >×</button>
+                </div>
+              ))}
             </div>
           )}
-          <button
-            onClick={handleUpload}
-            disabled={busy || files.length === 0}
-            style={{
-              width: '100%', padding: 8,
-              background: busy || files.length === 0 ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
-              color: 'var(--color-on-accent)', border: 'none',
-              borderRadius: 6, fontSize: 12, cursor: 'pointer',
-            }}
-          >
-            {busy ? 'Uploading...' : 'Upload & Index'}
+          <button onClick={handleUpload} disabled={busy || files.length === 0} style={btnStyle(busy || files.length === 0)}>
+            {busy ? `Uploading ${files.length} file${files.length !== 1 ? 's' : ''}…` : `Upload & Index (${files.length} file${files.length !== 1 ? 's' : ''})`}
           </button>
         </>
       )}
 
+      {/* Feedback */}
       {result && (
-        <div style={{ fontSize: 12, color: 'var(--color-success)', marginTop: 8 }}>
-          {result}
+        <div style={{ fontSize: 12, color: 'var(--color-success)', marginTop: 8, padding: '6px 10px',
+          background: 'color-mix(in srgb, var(--color-success) 8%, transparent)', borderRadius: 6 }}>
+          ✓ {result}
         </div>
       )}
       {error && (
-        <div style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 8, padding: '6px 10px',
+          background: 'rgba(220,38,38,0.06)', borderRadius: 6, whiteSpace: 'pre-wrap' }}>
           {error}
+        </div>
+      )}
+
+      {/* Previously uploaded documents */}
+      {(docsLoading || docs.length > 0) && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-tertiary)',
+            textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 6 }}>
+            Uploaded documents {docs.length > 0 && `(${docs.length})`}
+          </div>
+          {docsLoading ? (
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Loading…</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 3 }}>
+              {docs.map((d) => (
+                <div key={d.doc_id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '5px 8px', borderRadius: 6,
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                }}>
+                  <FileText size={12} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text)', overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {d.title || 'Untitled'}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                      {d.chunk_count} chunk{d.chunk_count !== 1 ? 's' : ''} · .{d.doc_type}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(d.doc_id)}
+                    disabled={deletingId === d.doc_id}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--color-text-tertiary)', fontSize: 11, padding: '2px 6px',
+                      borderRadius: 4, flexShrink: 0,
+                      opacity: deletingId === d.doc_id ? 0.4 : 1,
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-error)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)'; }}
+                    title="Remove from knowledge base"
+                  >
+                    {deletingId === d.doc_id ? '…' : '×'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -497,6 +646,7 @@ function DataSourcesSection() {
   const [syncStatuses, setSyncStatuses] = useState<Record<string, SyncStatus>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const loadConnectors = useCallback(() => {
     listConnectors()
@@ -514,6 +664,15 @@ function DataSourcesSection() {
   }, [setCachedConnectors]);
 
   const setConnectors = setCachedConnectors;
+
+  // Scroll the expanded card into view whenever expandedId changes
+  useEffect(() => {
+    if (!expandedId) return;
+    const el = cardRefs.current[expandedId];
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80);
+    }
+  }, [expandedId]);
 
   // Poll sync status for connected sources
   const loadSyncStatuses = useCallback(async () => {
@@ -792,6 +951,7 @@ function DataSourcesSection() {
             return (
               <div
                 key={c.connector_id}
+                ref={(el) => { cardRefs.current[c.connector_id] = el; }}
                 className="hud-panel"
                 style={{
                   gridColumn: isExpanded ? '1 / -1' : undefined,

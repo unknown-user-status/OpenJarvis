@@ -8,6 +8,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from openjarvis.connectors.store import KnowledgeStore
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/v1/connectors/upload", tags=["upload"])
 # ---------------------------------------------------------------------------
 
 _ALLOWED_EXTENSIONS = {".txt", ".md", ".csv", ".pdf", ".docx"}
+_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB per file
 
 
 def _chunk_text(text: str, max_chars: int = 1000) -> List[str]:
@@ -176,6 +178,12 @@ async def ingest_files(
 
         data = await upload.read()
 
+        if len(data) > _MAX_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{filename}' exceeds the 10 MB limit ({len(data) // 1_048_576} MB).",
+            )
+
         # Parse content based on extension
         if ext in (".txt", ".md", ".csv"):
             try:
@@ -216,3 +224,22 @@ async def ingest_files(
         )
 
     return IngestResponse(chunks_added=total_chunks)
+
+
+@router.get("/docs")
+async def list_uploaded_docs() -> JSONResponse:
+    """Return a list of distinct documents ingested via upload/paste."""
+    store = _get_store()
+    docs = store.list_docs(source="upload")
+    return JSONResponse({"docs": docs})
+
+
+@router.delete("/docs/{doc_id}")
+async def delete_uploaded_doc(doc_id: str) -> JSONResponse:
+    """Delete all chunks for the given doc_id."""
+    store = _get_store()
+    deleted = store.delete(doc_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No document found with id '{doc_id}'")
+    logger.info("Deleted uploaded document doc_id=%s", doc_id)
+    return JSONResponse({"status": "deleted", "doc_id": doc_id})

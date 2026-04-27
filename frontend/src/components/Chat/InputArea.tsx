@@ -9,6 +9,8 @@ import type { ChatMessage, ToolCallInfo, TokenUsage, MessageTelemetry } from '..
 
 export function InputArea() {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<{ name: string; text: string }[]>([]);
+  const fileAttachRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -83,11 +85,43 @@ export function InputArea() {
     resetStream();
   }, [resetStream]);
 
+  const handleAttachFiles = useCallback(async (files: FileList | null) => {
+    if (!files) return;
+    const newAttachments: { name: string; text: string }[] = [];
+    for (const file of Array.from(files)) {
+      if (file.size > 10 * 1024 * 1024) {
+        useAppStore.getState().addLogEntry({
+          timestamp: Date.now(), level: 'error', category: 'chat',
+          message: `File "${file.name}" exceeds 10 MB limit`,
+        });
+        continue;
+      }
+      try {
+        const text = await file.text();
+        newAttachments.push({ name: file.name, text });
+      } catch {
+        useAppStore.getState().addLogEntry({
+          timestamp: Date.now(), level: 'error', category: 'chat',
+          message: `Could not read "${file.name}"`,
+        });
+      }
+    }
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    if (fileAttachRef.current) fileAttachRef.current.value = '';
+  }, []);
+
   const sendMessage = useCallback(async () => {
-    const content = input.trim();
-    if (!content || streamState.isStreaming) return;
+    const rawInput = input.trim();
+    if ((!rawInput && attachments.length === 0) || streamState.isStreaming) return;
+
+    // Prepend any text attachments to the message content
+    const attachContext = attachments.length > 0
+      ? attachments.map((a) => `[Attached file: ${a.name}]\n\`\`\`\n${a.text.slice(0, 8000)}\n\`\`\``).join('\n\n') + '\n\n'
+      : '';
+    const content = attachContext + (rawInput || 'Please review the attached file(s).');
 
     setInput('');
+    setAttachments([]);
 
     let convId = activeId;
     if (!convId) {
@@ -302,6 +336,7 @@ export function InputArea() {
     }
   }, [
     input,
+    attachments,
     activeId,
     selectedModel,
     streamState.isStreaming,
@@ -321,6 +356,37 @@ export function InputArea() {
 
   return (
     <div className="px-4 pb-4 pt-2" style={{ maxWidth: 'var(--chat-max-width)', margin: '0 auto', width: '100%' }}>
+      {/* Attachment chips */}
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+          {attachments.map((a, i) => (
+            <span
+              key={i}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px]"
+              style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)', border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)' }}
+            >
+              <Paperclip size={10} />
+              {a.name}
+              <button
+                onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                className="ml-0.5 cursor-pointer leading-none"
+                style={{ background: 'none', border: 'none', color: 'inherit', padding: 0, lineHeight: 1 }}
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Hidden file input */}
+      <input
+        ref={fileAttachRef}
+        type="file"
+        multiple
+        accept=".txt,.md,.csv,.pdf,.docx,.py,.js,.ts,.json,.xml,.yaml,.yml,.html,.css"
+        style={{ display: 'none' }}
+        onChange={(e) => handleAttachFiles(e.target.files)}
+      />
+
       <div
         className="flex items-center gap-2 rounded-2xl px-4 py-3 transition-shadow"
         style={{
@@ -329,6 +395,19 @@ export function InputArea() {
           boxShadow: 'var(--shadow-sm)',
         }}
       >
+        {/* Attach button */}
+        <button
+          onClick={() => fileAttachRef.current?.click()}
+          disabled={streamState.isStreaming}
+          className="p-1.5 rounded-lg transition-colors shrink-0 cursor-pointer disabled:opacity-30"
+          style={{ color: 'var(--color-text-tertiary)' }}
+          title="Attach file (.txt, .md, .pdf, .docx, .csv, code files)"
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-accent)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)'; }}
+        >
+          <Paperclip size={16} />
+        </button>
+
         <textarea
           ref={textareaRef}
           value={input}
@@ -359,11 +438,11 @@ export function InputArea() {
             />
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || modelLoading}
+              disabled={(!input.trim() && attachments.length === 0) || modelLoading}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{
-                background: input.trim() ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
-                color: input.trim() ? 'white' : 'var(--color-text-tertiary)',
+                background: (input.trim() || attachments.length > 0) ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                color: (input.trim() || attachments.length > 0) ? 'white' : 'var(--color-text-tertiary)',
               }}
               title="Send message"
             >
