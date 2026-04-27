@@ -41,9 +41,9 @@ _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "ov_models"
 # These are the HuggingFace model IDs — they will be exported to OpenVINO IR
 # format on first use.
 MODEL_PREFERENCE = [
-    ("HuggingFaceTB/SmolVLM-256M-Instruct", "SmolVLM-256M"),
-    ("HuggingFaceTB/SmolVLM-500M-Instruct", "SmolVLM-500M"),
     ("Qwen/Qwen2-VL-2B-Instruct",           "Qwen2-VL-2B"),
+    ("HuggingFaceTB/SmolVLM-500M-Instruct", "SmolVLM-500M"),
+    ("HuggingFaceTB/SmolVLM-256M-Instruct", "SmolVLM-256M"),
     ("microsoft/Phi-3.5-vision-instruct",    "Phi-3.5-vision"),
     ("openbmb/MiniCPM-V-2_6",               "MiniCPM-V-2_6"),
 ]
