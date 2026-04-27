@@ -2,6 +2,53 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
+
+// ---------------------------------------------------------------------------
+// Cloud / online model catalogue (used in agent model selectors)
+// ---------------------------------------------------------------------------
+const CLOUD_MODEL_GROUPS = [
+  {
+    group: 'OpenRouter',
+    storageKey: 'openjarvis-openrouter-key',
+    models: [
+      { id: 'openrouter/auto', label: 'Auto (best available)' },
+      { id: 'openrouter/openai/gpt-4o', label: 'GPT-4o' },
+      { id: 'openrouter/anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
+      { id: 'openrouter/google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' },
+      { id: 'openrouter/mistralai/mistral-large', label: 'Mistral Large' },
+      { id: 'openrouter/deepseek/deepseek-r1', label: 'DeepSeek R1' },
+      { id: 'openrouter/qwen/qwen3-235b-a22b', label: 'Qwen3 235B' },
+    ],
+  },
+  {
+    group: 'OpenAI',
+    storageKey: 'openjarvis-openai-key',
+    models: [
+      { id: 'gpt-4o', label: 'GPT-4o' },
+      { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      { id: 'gpt-5', label: 'GPT-5' },
+      { id: 'o3-mini', label: 'o3-mini' },
+    ],
+  },
+  {
+    group: 'Anthropic',
+    storageKey: 'openjarvis-anthropic-key',
+    models: [
+      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+      { id: 'claude-haiku-3-5-20241022', label: 'Claude Haiku 3.5' },
+    ],
+  },
+  {
+    group: 'Google',
+    storageKey: 'openjarvis-gemini-key',
+    models: [
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    ],
+  },
+];
 import { useAppStore } from '../lib/store';
 import {
   fetchManagedAgents,
@@ -896,11 +943,27 @@ function LaunchWizard({
                 className="w-full px-3 py-2 rounded-lg text-sm"
                 style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
               >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id}{m.id === recommendedModel ? ' (recommended)' : ''}
-                  </option>
-                ))}
+                {models.length > 0 && (
+                  <optgroup label="── Local (Ollama)">
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.id}{m.id === recommendedModel ? ' ★ recommended' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {CLOUD_MODEL_GROUPS.map((grp) => {
+                  const hasKey = (() => { try { return !!localStorage.getItem(grp.storageKey); } catch { return false; } })();
+                  return (
+                    <optgroup key={grp.group} label={`── ${grp.group}${hasKey ? '' : ' (no key)'}`}>
+                      {grp.models.map((m) => (
+                        <option key={m.id} value={m.id} disabled={!hasKey}>
+                          {m.label}{!hasKey ? ' — add key in Settings' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
               </select>
             </div>
             <div>
@@ -1479,12 +1542,28 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
           className="text-sm rounded px-1 py-0.5"
           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
         >
-          {models.map((m) => {
-            const loaded = isModelLoaded(m);
+          {models.length > 0 && (
+            <optgroup label="── Local (Ollama)">
+              {models.map((m) => {
+                const loaded = isModelLoaded(m);
+                return (
+                  <option key={m} value={m} style={!loaded ? { color: 'var(--color-text-tertiary)' } : undefined}>
+                    {m}{!loaded ? ' (not loaded)' : ''}
+                  </option>
+                );
+              })}
+            </optgroup>
+          )}
+          {CLOUD_MODEL_GROUPS.map((grp) => {
+            const hasKey = (() => { try { return !!localStorage.getItem(grp.storageKey); } catch { return false; } })();
             return (
-              <option key={m} value={m} style={!loaded ? { color: 'var(--color-text-tertiary)' } : undefined}>
-                {m}{!loaded ? ' (not loaded)' : ''}
-              </option>
+              <optgroup key={grp.group} label={`── ${grp.group}${hasKey ? '' : ' (no key)'}`}>
+                {grp.models.map((m) => (
+                  <option key={m.id} value={m.id} disabled={!hasKey}>
+                    {m.label}{!hasKey ? ' — add key in Settings' : ''}
+                  </option>
+                ))}
+              </optgroup>
             );
           })}
         </select>

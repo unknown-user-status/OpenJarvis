@@ -80,19 +80,35 @@ class _LightweightSystem:
         self.memory_backend = None
 
 
+def _is_cloud_model(model: str) -> bool:
+    """Return True if the model string refers to a cloud/online provider."""
+    return any(model.startswith(p) for p in _CLOUD_PREFIXES)
+
+
 def _make_lightweight_system(
     engine: Any,
     model: str,
     config: Any = None,
 ) -> _LightweightSystem:
-    """Build a minimal system with a plain OllamaEngine.
+    """Build a minimal inference system for agent execution.
 
-    The server's ``app.state.engine`` is heavily wrapped
-    (MultiEngine -> InstrumentedEngine -> GuardrailsEngine) and can
-    return empty content from background threads.  Create a fresh
-    OllamaEngine directly (no health checks or model discovery that
-    could interfere with in-flight Ollama requests).
+    - For cloud/OpenRouter models: creates a fresh CloudEngine using API keys
+      from environment variables (set via the Settings page).
+    - For local models: creates a plain OllamaEngine (no health checks that
+      could interfere with in-flight Ollama requests).
     """
+    # ── Cloud / OpenRouter model ────────────────────────────────────────────
+    if model and _is_cloud_model(model):
+        try:
+            from openjarvis.engine.cloud import CloudEngine
+
+            cloud_engine = CloudEngine()
+            return _LightweightSystem(cloud_engine, model, config)
+        except Exception as exc:
+            logger.warning("Could not create CloudEngine for model %s: %s", model, exc)
+            # Fall through to Ollama as last resort
+
+    # ── Local (Ollama) model ────────────────────────────────────────────────
     try:
         from openjarvis.engine.ollama import OllamaEngine
 
@@ -132,7 +148,7 @@ def _parse_param_count(model_name: str) -> float:
     return float(m.group(1)) if m else 0.0
 
 
-_CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-")
+_CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-", "openrouter/", "chatgpt-", "MiniMax-")
 
 
 def _pick_recommended_model(
