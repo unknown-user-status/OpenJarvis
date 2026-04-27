@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message
@@ -200,8 +200,26 @@ class OpenVINOEngine(InferenceEngine):
     def check_availability(self) -> bool:
         """Check if OpenVINO is available and properly configured."""
         try:
-            from optimum.intel.openvino import OVModelForCausalLM
             import openvino as ov
-            return True
+            # Check if NPU/GPU devices are available
+            core = ov.Core()
+            available_devices = core.available_devices
+            return len(available_devices) > 0
         except ImportError:
             return False
+        except Exception:
+            return False
+
+    def health(self) -> bool:
+        """Check if the OpenVINO engine is healthy and ready."""
+        return self.check_availability()
+
+    def list_models(self) -> List[str]:
+        """Return list of available NPU-optimized models."""
+        # Return NPU-optimized models from the catalog
+        return [
+            "phi-3-mini-4k-instruct",
+            "tinyllama-1.1b",
+            "gemma-2b",
+            "llama-3.2-3b",
+        ]
