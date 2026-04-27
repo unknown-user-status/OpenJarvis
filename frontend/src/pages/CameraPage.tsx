@@ -1,16 +1,18 @@
 /**
  * OpenJarvis — Camera Vision Page
  *
- * Live webcam preview in the browser → snapshot → send to Ollama vision LLM
+ * Live webcam preview in the browser → snapshot → send to vision backend
  * via /api/jarvis/camera → display answer + optional TTS playback.
  *
- * Works 100% locally (Ollama moondream2 / llava).
+ * Backend priority (auto-selected server-side):
+ *   1. Intel NPU via OpenVINO GenAI (SmolVLM / Qwen2-VL)
+ *   2. Ollama CPU (moondream / llava fallback)
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Camera, CameraOff, Loader2, Eye, Volume2, VolumeX,
-  Wifi, WifiOff, RefreshCw, Send, Bot, Cpu,
+  Wifi, WifiOff, RefreshCw, Send, Bot, Cpu, Zap,
 } from 'lucide-react';
 import { getBase } from '../lib/api';
 
@@ -21,32 +23,47 @@ import { getBase } from '../lib/api';
 interface CameraResult {
   response: string;
   model: string;
+  backend: string;
   image_b64: string;
   audio_b64: string | null;
 }
 
-interface OllamaStatus {
-  running: boolean;
+interface NpuStatus {
+  openvino_installed: boolean;
+  npu_present: boolean;
+  devices: string[];
+  best_device: string | null;
+  model_ready: boolean;
+  model_dir: string | null;
+  active_device: string | null;
+}
+
+interface VisionStatus {
+  ollamaRunning: boolean;
   recommended: string | null;
   vision_models: string[];
+  npu: NpuStatus | null;
+  activeBackend: 'npu' | 'ollama' | 'none';
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function checkOllama(base: string): Promise<OllamaStatus> {
+async function checkVision(base: string): Promise<VisionStatus> {
   try {
     const r = await fetch(`${base}/api/jarvis/camera/models`);
-    if (!r.ok) return { running: false, recommended: null, vision_models: [] };
+    if (!r.ok) return { ollamaRunning: false, recommended: null, vision_models: [], npu: null, activeBackend: 'none' };
     const d = await r.json();
     return {
-      running: d.ollama_running,
+      ollamaRunning: d.ollama_running ?? false,
       recommended: d.recommended ?? null,
       vision_models: d.vision_models ?? [],
+      npu: d.npu ?? null,
+      activeBackend: d.active_backend ?? 'none',
     };
   } catch {
-    return { running: false, recommended: null, vision_models: [] };
+    return { ollamaRunning: false, recommended: null, vision_models: [], npu: null, activeBackend: 'none' };
   }
 }
 
@@ -106,9 +123,9 @@ export default function CameraPage() {
   const [result, setResult] = useState<CameraResult | null>(null);
   const [history, setHistory] = useState<Array<{ question: string; result: CameraResult }>>([]);
 
-  // Ollama status
-  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({
-    running: false, recommended: null, vision_models: [],
+  // Vision backend status
+  const [visionStatus, setVisionStatus] = useState<VisionStatus>({
+    ollamaRunning: false, recommended: null, vision_models: [], npu: null, activeBackend: 'none',
   });
 
   // Time
@@ -118,18 +135,17 @@ export default function CameraPage() {
     return () => clearInterval(t);
   }, []);
 
-  // Check Ollama on mount and every 10s
-  const refreshOllama = useCallback(async () => {
-    const s = await checkOllama(base);
-    setOllamaStatus(s);
-    // Clear cache in backend so it re-detects
+  // Check vision backends on mount and every 10s
+  const refreshStatus = useCallback(async () => {
+    const s = await checkVision(base);
+    setVisionStatus(s);
   }, [base]);
 
   useEffect(() => {
-    refreshOllama();
-    const t = setInterval(refreshOllama, 10000);
+    refreshStatus();
+    const t = setInterval(refreshStatus, 10000);
     return () => clearInterval(t);
-  }, [refreshOllama]);
+  }, [refreshStatus]);
 
   // Start webcam
   const startCamera = useCallback(async () => {
@@ -184,7 +200,7 @@ export default function CameraPage() {
 
     try {
       const r = await analyzeFrame(
-        base, imageB64, q, ttsOn, voice, ollamaStatus.recommended,
+        base, imageB64, q, ttsOn, voice, visionStatus.recommended,
       );
       setResult(r);
       setHistory(prev => [{ question: q, result: r }, ...prev].slice(0, 10));
@@ -195,7 +211,7 @@ export default function CameraPage() {
     } finally {
       setAnalyzing(false);
     }
-  }, [cameraActive, analyzing, question, base, ttsOn, voice, ollamaStatus.recommended]);
+  }, [cameraActive, analyzing, question, base, ttsOn, voice, visionStatus.recommended]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -208,7 +224,10 @@ export default function CameraPage() {
   // Render
   // ---------------------------------------------------------------------------
 
-  const ollamaOk = ollamaStatus.running && !!ollamaStatus.recommended;
+  const npuReady = visionStatus.npu?.model_ready ?? false;
+  const ollamaOk = visionStatus.ollamaRunning && !!visionStatus.recommended;
+  const anyBackendReady = npuReady || ollamaOk;
+  const activeBackend = visionStatus.activeBackend;
 
   return (
     <div style={{
@@ -233,11 +252,32 @@ export default function CameraPage() {
       }}>
         <span style={{ color: '#00c8ff', fontWeight: 700 }}>OPENJARVIS · CAMERA VISION</span>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: ollamaOk ? '#22c55e' : '#ef4444' }}>
+          {/* NPU indicator */}
+          {visionStatus.npu && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4,
+              color: npuReady ? '#a78bfa' : visionStatus.npu.npu_present ? '#fbbf24' : '#475569' }}>
+              <Zap size={11} />
+              {npuReady
+                ? `NPU · ${visionStatus.npu.best_device}`
+                : visionStatus.npu.npu_present
+                  ? 'NPU DETECTED (no model)'
+                  : 'NO NPU'}
+            </span>
+          )}
+          {/* Ollama indicator */}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: ollamaOk ? '#22c55e' : '#475569' }}>
             {ollamaOk ? <Wifi size={11} /> : <WifiOff size={11} />}
-            {ollamaOk ? `OLLAMA · ${ollamaStatus.recommended}` : 'OLLAMA OFFLINE'}
+            {ollamaOk ? `OLLAMA · ${visionStatus.recommended}` : 'OLLAMA OFFLINE'}
           </span>
-          <button onClick={refreshOllama} title="Refresh Ollama status" style={{
+          {/* Active backend badge */}
+          {anyBackendReady && (
+            <span style={{ padding: '2px 8px', borderRadius: 10,
+              background: activeBackend === 'npu' ? 'rgba(167,139,250,0.15)' : 'rgba(34,197,94,0.1)',
+              color: activeBackend === 'npu' ? '#a78bfa' : '#22c55e', fontSize: 10, fontWeight: 700 }}>
+              {activeBackend === 'npu' ? '⚡ NPU' : '🧠 CPU'}
+            </span>
+          )}
+          <button onClick={refreshStatus} title="Refresh status" style={{
             background: 'none', border: 'none', color: '#475569', cursor: 'pointer', padding: 2,
           }}>
             <RefreshCw size={11} />
@@ -322,7 +362,7 @@ export default function CameraPage() {
               }}>
                 <Loader2 size={36} color="#00c8ff" style={{ animation: 'spin 1s linear infinite' }} />
                 <span style={{ fontSize: 13, color: '#94a3b8' }}>
-                  Analyzing with {ollamaStatus.recommended ?? 'vision model'}…
+                  Analyzing with {activeBackend === 'npu' ? `NPU · ${visionStatus.npu?.best_device}` : visionStatus.recommended ?? 'vision model'}…
                 </span>
               </div>
             )}
@@ -364,11 +404,11 @@ export default function CameraPage() {
             />
             <button
               onClick={handleAnalyze}
-              disabled={!cameraActive || analyzing || !ollamaOk}
+              disabled={!cameraActive || analyzing || !anyBackendReady}
               title="Analyze frame"
               style={{
                 padding: '12px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                background: (!cameraActive || analyzing || !ollamaOk)
+                background: (!cameraActive || analyzing || !anyBackendReady)
                   ? 'rgba(0,200,255,0.1)'
                   : 'linear-gradient(135deg, #0e7490, #0891b2)',
                 color: '#fff', transition: 'all 0.2s',
@@ -433,34 +473,69 @@ export default function CameraPage() {
               VISION SETTINGS
             </div>
 
+            {/* NPU status */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>INTEL NPU (AI BOOST)</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Zap size={14} color={npuReady ? '#a78bfa' : visionStatus.npu?.npu_present ? '#fbbf24' : '#475569'} />
+                <span style={{ fontSize: 12, color: npuReady ? '#a78bfa' : visionStatus.npu?.npu_present ? '#fbbf24' : '#475569' }}>
+                  {npuReady
+                    ? `Active · ${visionStatus.npu?.best_device} · ${visionStatus.npu?.model_dir?.split(/[/\\]/).pop()}`
+                    : visionStatus.npu?.npu_present
+                      ? 'Detected — model not downloaded yet'
+                      : visionStatus.npu?.openvino_installed
+                        ? 'OpenVINO installed — NPU not found'
+                        : 'OpenVINO not installed'}
+                </span>
+              </div>
+              {visionStatus.npu && !npuReady && (
+                <div style={{
+                  marginTop: 8, padding: '8px 12px', borderRadius: 6,
+                  background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.15)',
+                  fontSize: 11, color: '#94a3b8',
+                }}>
+                  <div style={{ color: '#a78bfa', marginBottom: 4, fontWeight: 600 }}>Enable NPU acceleration:</div>
+                  <div>Run <code style={{ color: '#a78bfa' }}>setup_openvino_npu.bat</code> in the project folder</div>
+                  <div style={{ marginTop: 4, color: '#64748b' }}>Downloads SmolVLM-256M (~500 MB) and runs on your Intel AI Boost NPU</div>
+                </div>
+              )}
+            </div>
+
             {/* Ollama status */}
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>VISION MODEL</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>OLLAMA (CPU FALLBACK)</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Cpu size={14} color={ollamaOk ? '#22c55e' : '#ef4444'} />
-                <span style={{ fontSize: 12, color: ollamaOk ? '#22c55e' : '#ef4444' }}>
-                  {ollamaOk
-                    ? ollamaStatus.recommended
-                    : 'Ollama not running — install & pull moondream2'}
+                <Cpu size={14} color={ollamaOk ? '#22c55e' : '#475569'} />
+                <span style={{ fontSize: 12, color: ollamaOk ? '#22c55e' : '#475569' }}>
+                  {ollamaOk ? visionStatus.recommended : 'Not running'}
                 </span>
               </div>
               {!ollamaOk && (
                 <div style={{
                   marginTop: 8, padding: '8px 12px', borderRadius: 6,
-                  background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
-                  fontSize: 11, color: '#94a3b8',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                  fontSize: 11, color: '#64748b',
                 }}>
-                  <div style={{ color: '#fbbf24', marginBottom: 4, fontWeight: 600 }}>Setup required:</div>
-                  <div>1. Download: <a href="https://ollama.com" target="_blank" rel="noreferrer" style={{ color: '#00c8ff' }}>ollama.com</a></div>
-                  <div>2. Run: <code style={{ color: '#a78bfa' }}>ollama pull moondream2</code></div>
-                  <div>3. Start: <code style={{ color: '#a78bfa' }}>ollama serve</code></div>
+                  <div>Run: <code style={{ color: '#94a3b8' }}>ollama pull moondream</code></div>
                 </div>
               )}
-              {ollamaOk && ollamaStatus.vision_models.length > 1 && (
+              {ollamaOk && visionStatus.vision_models.length > 1 && (
                 <div style={{ marginTop: 6, fontSize: 11, color: '#64748b' }}>
-                  Other available: {ollamaStatus.vision_models.filter(m => m !== ollamaStatus.recommended).join(', ')}
+                  Other: {visionStatus.vision_models.filter(m => m !== visionStatus.recommended).join(', ')}
                 </div>
               )}
+            </div>
+
+            {/* Active backend summary */}
+            <div style={{ marginBottom: 14, padding: '8px 12px', borderRadius: 6,
+              background: activeBackend === 'npu' ? 'rgba(167,139,250,0.08)' : activeBackend === 'ollama' ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)',
+              border: `1px solid ${activeBackend === 'npu' ? 'rgba(167,139,250,0.2)' : activeBackend === 'ollama' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.2)'}`,
+            }}>
+              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>ACTIVE BACKEND</div>
+              <div style={{ fontSize: 13, fontWeight: 700,
+                color: activeBackend === 'npu' ? '#a78bfa' : activeBackend === 'ollama' ? '#22c55e' : '#ef4444' }}>
+                {activeBackend === 'npu' ? '⚡ Intel NPU (OpenVINO)' : activeBackend === 'ollama' ? '🧠 Ollama (CPU)' : '⚠ No backend ready'}
+              </div>
             </div>
 
             {/* TTS toggle */}
@@ -532,8 +607,13 @@ export default function CameraPage() {
                   {result.response}
                 </p>
               </div>
-              <div style={{ marginTop: 8, fontSize: 10, color: '#475569' }}>
-                Model: {result.model}
+              <div style={{ marginTop: 8, fontSize: 10, color: '#475569', display: 'flex', gap: 12 }}>
+                <span>Model: {result.model}</span>
+                {result.backend && (
+                  <span style={{ color: result.backend.startsWith('npu') ? '#a78bfa' : '#22c55e' }}>
+                    Backend: {result.backend}
+                  </span>
+                )}
               </div>
             </div>
           )}

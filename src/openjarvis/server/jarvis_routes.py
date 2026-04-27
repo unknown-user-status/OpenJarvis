@@ -458,6 +458,19 @@ def _ollama_vision_query(image_bytes: bytes, question: str, model: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# OpenVINO NPU vision (lazy import — only used if installed)
+# ---------------------------------------------------------------------------
+
+def _get_openvino_vision():
+    """Lazy import of openvino_vision module. Returns module or None."""
+    try:
+        from . import openvino_vision
+        return openvino_vision
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Camera request/response models
 # ---------------------------------------------------------------------------
 
@@ -468,6 +481,7 @@ class CameraRequest(BaseModel):
     tts: bool = False
     voice: str = "hannah"
     model: Optional[str] = None       # override auto-detected model
+    backend: Optional[str] = None     # "npu", "ollama", or None (auto)
 
 
 # ---------------------------------------------------------------------------
@@ -476,52 +490,120 @@ class CameraRequest(BaseModel):
 
 @jarvis_router.get("/camera/models")
 async def camera_models():
-    """Return list of available Ollama vision models."""
+    """Return list of available vision backends and models."""
+    # Ollama models
     all_models = _list_ollama_models()
     vision_models = [
         m for m in all_models
-        if any(m.startswith(base) for base in ["moondream", "llava", "minicpm-v", "bakllava", "llava-llama3", "llava-phi3"])
+        if any(m.startswith(base) for base in [
+            "moondream", "llava", "minicpm-v", "bakllava",
+            "llava-llama3", "llava-phi3",
+        ])
     ]
-    detected = _detect_vision_model()
+    detected_ollama = _detect_vision_model()
+
+    # OpenVINO / NPU status
+    ov = _get_openvino_vision()
+    npu_status = ov.get_status() if ov else {
+        "openvino_installed": False,
+        "npu_present": False,
+        "devices": [],
+        "best_device": None,
+        "model_ready": False,
+        "model_dir": None,
+        "active_device": None,
+    }
+
     return {
+        # Ollama backend
         "available": all_models,
         "vision_models": vision_models,
-        "recommended": detected,
+        "recommended": detected_ollama,
         "ollama_running": len(all_models) > 0,
+        # OpenVINO / NPU backend
+        "npu": npu_status,
+        # Which backend will be used by default
+        "active_backend": (
+            "npu" if npu_status.get("model_ready") else
+            "ollama" if detected_ollama else
+            "none"
+        ),
     }
+
+
+@jarvis_router.get("/camera/npu")
+async def camera_npu_status():
+    """Return OpenVINO / Intel NPU status."""
+    ov = _get_openvino_vision()
+    if ov is None:
+        return {
+            "openvino_installed": False,
+            "message": (
+                "openvino-genai not installed. "
+                "Run setup_openvino_npu.bat to enable NPU inference."
+            ),
+        }
+    return ov.get_status()
 
 
 @jarvis_router.post("/camera")
 async def jarvis_camera(request: CameraRequest):
-    """Capture webcam frame (or use provided image) → Ollama vision LLM → return response."""
-    api_key = os.environ.get("GROQ_API_KEY", "")
+    """Capture webcam frame (or use provided image) and run vision inference.
 
-    # Resolve model
-    model = request.model or _detect_vision_model()
-    if not model:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "No Ollama vision model found. "
-                "Install Ollama and run: ollama pull moondream"
-            ),
-        )
+    Backend selection (auto unless overridden via request.backend):
+      1. NPU  — Intel AI Boost via OpenVINO GenAI (fastest, local, private)
+      2. CPU  — Ollama moondream (fallback if NPU not set up)
+    """
+    api_key = os.environ.get("GROQ_API_KEY", "")
 
     # Get image bytes
     if request.image_b64:
-        # Frontend sent a frame from its webcam preview
         try:
             image_bytes = base64.b64decode(request.image_b64)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid image_b64 data")
     else:
-        # Capture from server-side webcam
         image_bytes = _capture_webcam_frame(request.camera_index)
 
     question = request.question.strip() or "Describe what you see in this image."
-    answer = _ollama_vision_query(image_bytes, question, model)
+    answer: Optional[str] = None
+    backend_used = "none"
+    model_used = "unknown"
 
-    # Encode captured image for display in frontend
+    # ---- Try OpenVINO NPU (unless user explicitly requested ollama) --------
+    use_npu = request.backend in (None, "npu", "openvino")
+    if use_npu:
+        ov = _get_openvino_vision()
+        if ov and ov.is_openvino_available() and ov.find_local_model():
+            try:
+                answer, device = ov.query(image_bytes, question)
+                model_dir = ov.find_local_model()
+                model_used = f"OpenVINO/{model_dir.name}" if model_dir else "OpenVINO"
+                backend_used = f"npu:{device}"
+                logger.info("Camera vision answered by OpenVINO on %s", device)
+            except Exception as exc:
+                logger.warning("OpenVINO inference failed, falling back to Ollama: %s", exc)
+
+    # ---- Fallback: Ollama (CPU) --------------------------------------------
+    if answer is None and request.backend != "npu":
+        model = request.model or _detect_vision_model()
+        if not model:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "No vision backend available. Options:\n"
+                    "• Ollama: run 'ollama pull moondream'\n"
+                    "• NPU:    run setup_openvino_npu.bat"
+                ),
+            )
+        answer = _ollama_vision_query(image_bytes, question, model)
+        model_used = model
+        backend_used = "ollama:cpu"
+
+    if answer is None:
+        raise HTTPException(status_code=503, detail="No vision backend available.")
+
+    # Encode image for display
     captured_b64 = base64.b64encode(image_bytes).decode("ascii")
 
     # Optional TTS
@@ -535,7 +617,8 @@ async def jarvis_camera(request: CameraRequest):
 
     return JSONResponse({
         "response": answer,
-        "model": model,
+        "model": model_used,
+        "backend": backend_used,
         "image_b64": captured_b64,
         "audio_b64": audio_b64,
     })
