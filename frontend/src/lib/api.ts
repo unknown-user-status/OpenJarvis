@@ -106,7 +106,19 @@ export async function fetchRecommendedModel(): Promise<{ model: string; reason: 
   return res.json();
 }
 
-export async function pullModel(modelName: string): Promise<void> {
+export interface PullProgress {
+  status: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
+  /** 0–100 */
+  percent?: number;
+}
+
+export async function pullModel(
+  modelName: string,
+  onProgress?: (p: PullProgress) => void,
+): Promise<void> {
   // In Tauri, go through the Rust backend directly (avoids CORS / timeout
   // issues with long model downloads via fetch).
   if (isTauri()) {
@@ -118,14 +130,57 @@ export async function pullModel(modelName: string): Promise<void> {
       throw new Error(e?.message || e || 'Download failed');
     }
   }
+
   const res = await fetch(`${getBase()}/v1/models/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: modelName }),
   });
+
   if (!res.ok) {
     const detail = await res.text().catch(() => res.statusText);
     throw new Error(`Failed to pull model: ${detail}`);
+  }
+
+  // Backend now returns an SSE stream of Ollama pull progress events.
+  const reader = res.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+        try {
+          const obj = JSON.parse(raw) as PullProgress & { error?: string };
+          if (obj.error) throw new Error(obj.error);
+          if (onProgress) {
+            const percent =
+              obj.total && obj.completed
+                ? Math.round((obj.completed / obj.total) * 100)
+                : undefined;
+            onProgress({ ...obj, percent });
+          }
+          if (obj.status === 'success') return;
+        } catch (parseErr: any) {
+          if (parseErr?.message && !parseErr.message.startsWith('JSON')) {
+            throw parseErr; // Re-throw Ollama errors
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
   }
 }
 

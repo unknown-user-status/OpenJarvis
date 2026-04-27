@@ -468,74 +468,141 @@ async def list_models(request: Request) -> ModelListResponse:
     )
 
 
+def _get_ollama_host(request: Request) -> str:
+    """Return the Ollama host URL, checking engine state and falling back to default."""
+    engine = request.app.state.engine
+    # Unwrap InstrumentedEngine / MultiEngine wrappers to find the real Ollama engine
+    inner = engine
+    for attr in ("_inner", "_engine", "engine"):
+        candidate = getattr(inner, attr, None)
+        if candidate is not None:
+            inner = candidate
+            break
+    # MultiEngine: iterate sub-engines to find the Ollama one
+    try:
+        from openjarvis.engine.multi import MultiEngine
+        if isinstance(inner, MultiEngine):
+            for sub in inner._engines.values():
+                if getattr(sub, "engine_id", "") == "ollama":
+                    inner = sub
+                    break
+    except Exception:
+        pass
+    return getattr(inner, "_host", None) or getattr(engine, "_host", None) or "http://localhost:11434"
+
+
+def _is_ollama_available(request: Request) -> bool:
+    """Return True if any Ollama engine is configured."""
+    engine = request.app.state.engine
+    engine_name = getattr(request.app.state, "engine_name", "")
+    if engine_name == "ollama":
+        return True
+    if getattr(engine, "engine_id", "") == "ollama":
+        return True
+    # Check wrappers
+    for attr in ("_inner", "_engine", "engine"):
+        inner = getattr(engine, attr, None)
+        if inner and getattr(inner, "engine_id", "") == "ollama":
+            return True
+    # MultiEngine
+    try:
+        from openjarvis.engine.multi import MultiEngine
+        inner2 = getattr(engine, "_inner", engine)
+        if isinstance(inner2, MultiEngine):
+            return any(
+                getattr(e, "engine_id", "") == "ollama"
+                for e in inner2._engines.values()
+            )
+    except Exception:
+        pass
+    return False
+
+
 @router.post("/v1/models/pull")
 async def pull_model(request: Request):
-    """Pull / download a model from the Ollama registry."""
+    """Pull / download a model from the Ollama registry, streaming progress via SSE."""
     body = await request.json()
     model_name = body.get("model", "").strip()
     if not model_name:
         raise HTTPException(status_code=400, detail="'model' field is required")
 
-    engine = request.app.state.engine
-    engine_name = getattr(request.app.state, "engine_name", "")
-    # Only Ollama supports pulling
-    if engine_name != "ollama" and getattr(engine, "engine_id", "") != "ollama":
+    if not _is_ollama_available(request):
         raise HTTPException(
             status_code=501,
             detail="Model pulling is only supported with the Ollama engine",
         )
 
-    import httpx as _httpx
+    host = _get_ollama_host(request)
 
-    host = getattr(engine, "_host", "http://localhost:11434")
-    client = _httpx.Client(base_url=host, timeout=600.0)
-    try:
-        resp = client.post(
-            "/api/pull",
-            json={"name": model_name, "stream": False},
-        )
-        resp.raise_for_status()
-    except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
-        raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
-    except _httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=exc.response.status_code,
-            detail=f"Ollama error: {exc.response.text[:300]}",
-        )
-    finally:
-        client.close()
+    async def _stream_pull():
+        import httpx as _httpx
 
-    return {"status": "ok", "model": model_name}
+        try:
+            async with _httpx.AsyncClient(base_url=host, timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    "/api/pull",
+                    json={"name": model_name, "stream": True},
+                ) as resp:
+                    if resp.status_code != 200:
+                        err_body = await resp.aread()
+                        err_text = err_body.decode(errors="replace")[:300]
+                        yield f"data: {json.dumps({'error': err_text, 'status': 'error'})}\n\n"
+                        return
+
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        # Forward progress as SSE
+                        yield f"data: {json.dumps(obj)}\n\n"
+                        if obj.get("status") == "success":
+                            break
+
+        except _httpx.ConnectError:
+            yield f"data: {json.dumps({'error': 'Ollama is not running. Start it with: ollama serve', 'status': 'error'})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc), 'status': 'error'})}\n\n"
+
+    return StreamingResponse(
+        _stream_pull(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete("/v1/models/{model_name:path}")
 async def delete_model(model_name: str, request: Request):
     """Delete a model from Ollama."""
-    engine = request.app.state.engine
-    engine_name = getattr(request.app.state, "engine_name", "")
-    if engine_name != "ollama" and getattr(engine, "engine_id", "") != "ollama":
+    if not _is_ollama_available(request):
         raise HTTPException(status_code=501, detail="Only supported with Ollama engine")
+
+    host = _get_ollama_host(request)
 
     import httpx as _httpx
 
-    host = getattr(engine, "_host", "http://localhost:11434")
-    client = _httpx.Client(base_url=host, timeout=30.0)
-    try:
-        resp = client.request(
-            "DELETE",
-            "/api/delete",
-            json={"name": model_name},
-        )
-        resp.raise_for_status()
-    except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
-        raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
-    except _httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=exc.response.status_code,
-            detail=f"Ollama error: {exc.response.text[:300]}",
-        )
-    finally:
-        client.close()
+    async with _httpx.AsyncClient(base_url=host, timeout=30.0) as client:
+        try:
+            resp = await client.request(
+                "DELETE",
+                "/api/delete",
+                json={"name": model_name},
+            )
+            resp.raise_for_status()
+        except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
+            raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
+        except _httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                status_code=exc.response.status_code,
+                detail=f"Ollama error: {exc.response.text[:300]}",
+            )
 
     return {"status": "deleted", "model": model_name}
 

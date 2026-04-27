@@ -1,22 +1,40 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, Cpu, X, Download, Loader2, Trash2, Check, Cloud, Key, Eye, EyeOff } from 'lucide-react';
 import { useAppStore } from '../lib/store';
-import { pullModel, deleteModel, fetchModels, preloadModel, isTauri } from '../lib/api';
+import { pullModel, deleteModel, fetchModels, preloadModel, isTauri, type PullProgress } from '../lib/api';
 
 /** Popular models that users can download from the catalogue. */
 const CATALOGUE_MODELS = [
-  { id: 'qwen3.5:0.8b', size: '~1 GB', desc: 'Qwen 3.5 0.8B — fast, lightweight' },
-  { id: 'qwen3.5:2b', size: '~2.7 GB', desc: 'Qwen 3.5 2B' },
-  { id: 'qwen3.5:4b', size: '~3.4 GB', desc: 'Qwen 3.5 4B — recommended default' },
-  { id: 'qwen3.5:9b', size: '~6.6 GB', desc: 'Qwen 3.5 9B' },
-  { id: 'qwen3.5:27b', size: '~17 GB', desc: 'Qwen 3.5 27B' },
-  { id: 'qwen3.5:35b', size: '~24 GB', desc: 'Qwen 3.5 35B' },
-  { id: 'qwen3.5:122b', size: '~81 GB', desc: 'Qwen 3.5 122B — largest' },
+  // Qwen 3.5 — latest multimodal series (vision + tools + thinking)
+  { id: 'qwen3.5:0.8b', size: '~1 GB',  desc: 'Qwen 3.5 0.8B — fast, lightweight (vision)' },
+  { id: 'qwen3.5:2b',   size: '~2.7 GB', desc: 'Qwen 3.5 2B (vision)' },
+  { id: 'qwen3.5:4b',   size: '~3.4 GB', desc: 'Qwen 3.5 4B — recommended (vision)' },
+  { id: 'qwen3.5:9b',   size: '~6.6 GB', desc: 'Qwen 3.5 9B ★ default (vision)' },
+  { id: 'qwen3.5:27b',  size: '~17 GB',  desc: 'Qwen 3.5 27B (vision)' },
+  { id: 'qwen3.5:35b',  size: '~24 GB',  desc: 'Qwen 3.5 35B (vision)' },
+  { id: 'qwen3.5:122b', size: '~81 GB',  desc: 'Qwen 3.5 122B — largest (vision)' },
+  // Qwen 3 — text reasoning + tools
+  { id: 'qwen3:0.6b',   size: '~523 MB', desc: 'Qwen 3 0.6B — smallest' },
+  { id: 'qwen3:1.7b',   size: '~1.4 GB', desc: 'Qwen 3 1.7B' },
+  { id: 'qwen3:4b',     size: '~2.5 GB', desc: 'Qwen 3 4B (256K context)' },
+  { id: 'qwen3:8b',     size: '~5.2 GB', desc: 'Qwen 3 8B ★ default' },
+  { id: 'qwen3:14b',    size: '~9.3 GB', desc: 'Qwen 3 14B' },
+  { id: 'qwen3:32b',    size: '~20 GB',  desc: 'Qwen 3 32B' },
+  // Llama
+  { id: 'llama3.2:3b',  size: '~2 GB',   desc: 'Llama 3.2 3B — fast' },
   { id: 'llama3.3:latest', size: '~4.9 GB', desc: 'Llama 3.3 8B' },
-  { id: 'mistral:latest', size: '~4.1 GB', desc: 'Mistral 7B' },
-  { id: 'gemma3:latest', size: '~3.3 GB', desc: 'Gemma 3 4B' },
-  { id: 'deepseek-r1:7b', size: '~4.7 GB', desc: 'DeepSeek R1 7B' },
-  { id: 'phi4:latest', size: '~9.1 GB', desc: 'Phi-4 14B' },
+  { id: 'llama3.1:8b',  size: '~4.9 GB', desc: 'Llama 3.1 8B' },
+  // Gemma
+  { id: 'gemma4:4b',    size: '~3.3 GB', desc: 'Gemma 4 4B — Google (vision)' },
+  { id: 'gemma4:12b',   size: '~8 GB',   desc: 'Gemma 4 12B (vision)' },
+  { id: 'gemma3:4b',    size: '~3.3 GB', desc: 'Gemma 3 4B (vision)' },
+  // DeepSeek
+  { id: 'deepseek-r1:7b',  size: '~4.7 GB', desc: 'DeepSeek R1 7B — reasoning' },
+  { id: 'deepseek-r1:14b', size: '~9 GB',   desc: 'DeepSeek R1 14B — reasoning' },
+  // Others
+  { id: 'mistral:latest',  size: '~4.1 GB', desc: 'Mistral 7B' },
+  { id: 'phi4:latest',     size: '~9.1 GB', desc: 'Phi-4 14B — Microsoft' },
+  { id: 'phi4-mini:latest', size: '~2.5 GB', desc: 'Phi-4 Mini 3.8B — Microsoft' },
 ];
 
 /** Cloud provider definitions */
@@ -87,6 +105,7 @@ export function CommandPalette() {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [tab, setTab] = useState<Tab>('installed');
   const [pulling, setPulling] = useState<string | null>(null);
+  const [pullProgress, setPullProgress] = useState<PullProgress | null>(null);
   const [pullError, setPullError] = useState<string | null>(null);
   const [pullSuccess, setPullSuccess] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -164,9 +183,11 @@ export function CommandPalette() {
   const handlePull = async (modelId: string) => {
     setPulling(modelId);
     setPullError(null);
+    setPullProgress(null);
     try {
-      await pullModel(modelId);
+      await pullModel(modelId, (p) => setPullProgress(p));
       setPullSuccess(modelId);
+      setPullProgress(null);
       useAppStore.getState().addLogEntry({
         timestamp: Date.now(), level: 'info', category: 'model',
         message: `Downloaded ${modelId}`,
@@ -174,6 +195,7 @@ export function CommandPalette() {
       await refreshModels();
       setSelectedModel(modelId);
     } catch (e: any) {
+      setPullProgress(null);
       setPullError(e.message || 'Download failed');
       useAppStore.getState().addLogEntry({
         timestamp: Date.now(), level: 'error', category: 'model',
@@ -323,6 +345,36 @@ export function CommandPalette() {
             <Check size={12} /> Downloaded {pullSuccess} successfully
           </div>
         )}
+        {/* Download progress bar */}
+        {pulling && pullProgress && (
+          <div className="px-4 py-2" style={{ background: 'var(--color-bg-secondary)', borderBottom: '1px solid var(--color-border)' }}>
+            <div className="flex items-center justify-between text-[11px] mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+              <span className="truncate max-w-[70%]">{pullProgress.status}{pulling ? ` — ${pulling}` : ''}</span>
+              {pullProgress.percent !== undefined && (
+                <span className="font-mono font-medium">{pullProgress.percent}%</span>
+              )}
+              {pullProgress.total && pullProgress.completed && pullProgress.percent === undefined && (
+                <span className="font-mono">{(pullProgress.completed / 1e6).toFixed(0)} / {(pullProgress.total / 1e6).toFixed(0)} MB</span>
+              )}
+            </div>
+            {pullProgress.total && pullProgress.completed ? (
+              <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-200"
+                  style={{
+                    width: `${Math.round((pullProgress.completed / pullProgress.total) * 100)}%`,
+                    background: 'var(--color-accent)',
+                  }}
+                />
+              </div>
+            ) : (
+              /* indeterminate bar while pulling manifest/layers */
+              <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
+                <div className="h-full rounded-full animate-pulse" style={{ width: '40%', background: 'var(--color-accent)', opacity: 0.6 }} />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Results */}
         <div className="max-h-[400px] overflow-y-auto py-2">
@@ -392,16 +444,19 @@ export function CommandPalette() {
                     <button
                       onClick={() => handlePull(model.id)}
                       disabled={isPulling || !!pulling}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer"
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer shrink-0"
                       style={{
                         background: justInstalled ? 'var(--color-accent-subtle)' : 'var(--color-accent)',
                         color: justInstalled ? 'var(--color-accent)' : 'var(--color-on-accent)',
                         opacity: (isPulling || (pulling && !isPulling)) ? 0.5 : 1,
+                        minWidth: 90,
+                        justifyContent: 'center',
                       }}
                     >
-                      {isPulling ? <><Loader2 size={12} className="animate-spin" /> Downloading...</> :
-                       justInstalled ? <><Check size={12} /> Installed</> :
-                       <><Download size={12} /> Download</>}
+                      {isPulling
+                        ? <><Loader2 size={12} className="animate-spin" /> {pullProgress?.percent != null ? `${pullProgress.percent}%` : 'Pulling...'}</>
+                        : justInstalled ? <><Check size={12} /> Installed</>
+                        : <><Download size={12} /> Download</>}
                     </button>
                   </div>
                 );
