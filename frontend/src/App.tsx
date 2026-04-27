@@ -12,6 +12,7 @@ import { VoicePage } from './pages/VoicePage';
 import { JarvisPage } from './pages/JarvisPage';
 import { DesktopControlPage } from './pages/DesktopControlPage';
 import CameraPage from './pages/CameraPage';
+import ChannelsPage from './pages/ChannelsPage';
 import { CommandPalette } from './components/CommandPalette';
 import { SetupScreen } from './components/SetupScreen';
 import { Toaster } from './components/ui/sonner';
@@ -179,6 +180,7 @@ export default function App() {
           <Route path="jarvis" element={<JarvisPage />} />
           <Route path="voice" element={<VoicePage />} />
           <Route path="camera" element={<CameraPage />} />
+          <Route path="channels" element={<ChannelsPage />} />
           <Route path="desktop-control" element={<DesktopControlPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="settings" element={<SettingsPage />} />

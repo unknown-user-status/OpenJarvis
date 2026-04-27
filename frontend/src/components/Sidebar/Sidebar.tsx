@@ -20,6 +20,7 @@ import {
   Mic,
   Sparkles,
   Camera,
+  MessagesSquare,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -58,6 +59,7 @@ export function Sidebar() {
     { path: '/jarvis', icon: Sparkles, label: 'Jarvis' },
     { path: '/', icon: MessageSquare, label: 'Chat' },
     { path: '/voice', icon: Mic, label: 'Voice' },
+    { path: '/channels', icon: MessagesSquare, label: 'Channels' },
     { path: '/camera', icon: Camera, label: 'Camera Vision' },
     { path: '/desktop-control', icon: Monitor, label: 'Desktop Control' },
     { path: '/dashboard', icon: BarChart3, label: 'Dashboard' },
