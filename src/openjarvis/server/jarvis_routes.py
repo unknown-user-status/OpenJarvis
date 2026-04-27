@@ -1,4 +1,4 @@
-"""OpenJarvis core API routes — chat, voice (STT), and TTS.
+"""OpenJarvis core API routes — chat, voice (STT), TTS, and camera vision.
 
 Endpoints
 ---------
@@ -12,8 +12,16 @@ POST /api/jarvis/voice
 POST /api/jarvis/tts
     Accept {text: str, voice?: str} → Groq Orpheus TTS → return audio/wav bytes
 
+POST /api/jarvis/camera
+    Accept {question?: str, image_b64?: str, tts?: bool, voice?: str}
+    → capture webcam (or use provided image) → Ollama vision LLM → return
+    {response, model, image_b64, audio_b64?}
+
+GET  /api/jarvis/camera/models
+    Return list of available Ollama vision models
+
 GET  /api/jarvis/health
-    Quick health-check: {ok, tts_available, groq_key_set}
+    Quick health-check: {ok, tts_available, groq_key_set, ollama_vision?}
 """
 
 from __future__ import annotations
@@ -351,6 +359,186 @@ async def jarvis_tts(request: TTSRequest):
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"TTS failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Camera / vision helpers
+# ---------------------------------------------------------------------------
+
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+
+# Preference order: fastest CPU-friendly first
+_VISION_MODEL_PREFERENCE = [
+    "moondream2",
+    "minicpm-v:8b",
+    "llava:7b",
+    "llava",
+    "llava:13b",
+    "llava:34b",
+]
+
+_cached_vision_model: Optional[str] = None
+
+
+def _list_ollama_models() -> List[str]:
+    """Return list of model names from Ollama (empty if Ollama is not running)."""
+    try:
+        import httpx
+        resp = httpx.get(f"{OLLAMA_HOST}/api/tags", timeout=3.0)
+        if resp.status_code != 200:
+            return []
+        return [m["name"] for m in resp.json().get("models", [])]
+    except Exception:
+        return []
+
+
+def _detect_vision_model() -> Optional[str]:
+    """Return the best available Ollama vision model name."""
+    global _cached_vision_model
+    if _cached_vision_model:
+        return _cached_vision_model
+    available = _list_ollama_models()
+    available_bases = {n.split(":")[0]: n for n in available}
+    for pref in _VISION_MODEL_PREFERENCE:
+        base = pref.split(":")[0]
+        if pref in available:
+            _cached_vision_model = pref
+            return pref
+        if base in available_bases:
+            _cached_vision_model = available_bases[base]
+            return _cached_vision_model
+    return None
+
+
+def _capture_webcam_frame(camera_index: int = 0) -> bytes:
+    """Capture one JPEG frame from the webcam. Requires opencv-python."""
+    try:
+        import cv2  # type: ignore
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="opencv-python not installed. Run: uv pip install opencv-python"
+        )
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        raise HTTPException(status_code=503, detail=f"Cannot open camera {camera_index}")
+    # Let auto-exposure settle
+    for _ in range(5):
+        cap.read()
+    ret, frame = cap.read()
+    cap.release()
+    if not ret or frame is None:
+        raise HTTPException(status_code=500, detail="Failed to capture frame from webcam")
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return bytes(buf)
+
+
+def _ollama_vision_query(image_bytes: bytes, question: str, model: str) -> str:
+    """Ask Ollama vision model a question about an image."""
+    try:
+        import httpx
+        b64 = base64.b64encode(image_bytes).decode("ascii")
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": question,
+                    "images": [b64],
+                }
+            ],
+            "stream": False,
+            "options": {"temperature": 0.3, "num_predict": 512},
+        }
+        resp = httpx.post(f"{OLLAMA_HOST}/api/chat", json=payload, timeout=120.0)
+        resp.raise_for_status()
+        return resp.json().get("message", {}).get("content", "No response from vision model.")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Ollama vision query failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Camera request/response models
+# ---------------------------------------------------------------------------
+
+class CameraRequest(BaseModel):
+    question: str = "Describe what you see in this image."
+    image_b64: Optional[str] = None   # if provided, skip webcam capture
+    camera_index: int = 0
+    tts: bool = False
+    voice: str = "hannah"
+    model: Optional[str] = None       # override auto-detected model
+
+
+# ---------------------------------------------------------------------------
+# Camera endpoints
+# ---------------------------------------------------------------------------
+
+@jarvis_router.get("/camera/models")
+async def camera_models():
+    """Return list of available Ollama vision models."""
+    all_models = _list_ollama_models()
+    vision_models = [
+        m for m in all_models
+        if any(m.startswith(base) for base in ["moondream", "llava", "minicpm-v", "bakllava", "llava-llama3", "llava-phi3"])
+    ]
+    detected = _detect_vision_model()
+    return {
+        "available": all_models,
+        "vision_models": vision_models,
+        "recommended": detected,
+        "ollama_running": len(all_models) > 0,
+    }
+
+
+@jarvis_router.post("/camera")
+async def jarvis_camera(request: CameraRequest):
+    """Capture webcam frame (or use provided image) → Ollama vision LLM → return response."""
+    api_key = os.environ.get("GROQ_API_KEY", "")
+
+    # Resolve model
+    model = request.model or _detect_vision_model()
+    if not model:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No Ollama vision model found. "
+                "Install Ollama and run: ollama pull moondream2"
+            ),
+        )
+
+    # Get image bytes
+    if request.image_b64:
+        # Frontend sent a frame from its webcam preview
+        try:
+            image_bytes = base64.b64decode(request.image_b64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid image_b64 data")
+    else:
+        # Capture from server-side webcam
+        image_bytes = _capture_webcam_frame(request.camera_index)
+
+    question = request.question.strip() or "Describe what you see in this image."
+    answer = _ollama_vision_query(image_bytes, question, model)
+
+    # Encode captured image for display in frontend
+    captured_b64 = base64.b64encode(image_bytes).decode("ascii")
+
+    # Optional TTS
+    audio_b64 = None
+    if request.tts and answer and api_key:
+        try:
+            wav_bytes = _synthesize_tts(answer, api_key, voice=request.voice)
+            audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
+        except Exception as exc:
+            logger.debug("Camera TTS skipped: %s", exc)
+
+    return JSONResponse({
+        "response": answer,
+        "model": model,
+        "image_b64": captured_b64,
+        "audio_b64": audio_b64,
+    })
 
 
 __all__ = ["jarvis_router"]

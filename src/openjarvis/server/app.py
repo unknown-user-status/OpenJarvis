@@ -287,9 +287,26 @@ def create_app(
                 name="static-assets",
             )
 
+        # API prefixes that must NEVER be intercepted by the SPA fallback
+        _SPA_SKIP_PREFIXES = (
+            "v1/", "api/", "health", "assets/",
+            "registerSW", "manifest.webmanifest", "favicon", "apple-touch",
+            "openapi.json", "docs", "redoc",
+        )
+
         @app.get("/{full_path:path}")
         async def spa_catch_all(full_path: str):
-            """Serve static files directly, fall back to index.html for SPA routes."""
+            """Serve static files directly, fall back to index.html for SPA routes.
+            API paths (/v1/*, /api/*, /health, etc.) are never intercepted.
+            """
+            # Let real API routes through — this handler should never have been
+            # reached for them, but FastAPI path ordering can put the wildcard
+            # ahead of specific routes registered after mount().
+            for prefix in _SPA_SKIP_PREFIXES:
+                if full_path.startswith(prefix):
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse({"detail": "Not found"}, status_code=404)
+
             if full_path:
                 candidate = (static_dir / full_path).resolve()
                 # Path traversal prevention
