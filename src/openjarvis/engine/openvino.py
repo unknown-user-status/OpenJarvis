@@ -60,7 +60,7 @@ class OpenVINOEngine(InferenceEngine):
             return
 
         try:
-            from optimum.intel.openvino import OVModelForCausalLM
+            import openvino as ov
             from transformers import AutoTokenizer
 
             logger.info(f"Loading OpenVINO model: {self._model_path}")
@@ -68,28 +68,21 @@ class OpenVINOEngine(InferenceEngine):
             # Load tokenizer
             self._tokenizer = AutoTokenizer.from_pretrained(self._model_path)
             
-            # Load and export model to OpenVINO
-            ov_config = {
-                "CACHE_DIR": self._cache_dir,
-                "PERF_COUNT": "YES",  # Enable performance counters
-            }
-            
-            self._model = OVModelForCausalLM.from_pretrained(
-                self._model_path,
-                export=True,
-                ov_config=ov_config,
-                load_in_8bit=self._load_in_8bit,
-                device=self._device,
+            # For now, raise NotImplementedError since automatic conversion
+            # requires complex dependencies (optimum-intel with compatible versions)
+            # Users can pre-convert models using OpenVINO tools
+            raise NotImplementedError(
+                "OpenVINO NPU inference requires pre-converted models. "
+                "Please convert models using OpenVINO model converter tools, "
+                "or install compatible optimum-intel dependencies. "
+                "For now, please use the cloud engine or Ollama for inference."
             )
-            
-            self._initialized = True
-            logger.info(f"OpenVINO model loaded successfully on {self._device}")
 
         except ImportError as e:
             logger.error(f"OpenVINO dependencies not installed: {e}")
             raise ImportError(
                 "OpenVINO dependencies required. Install with: "
-                "pip install openvino openvino-dev[onnx,tensorflow2,pytorch] transformers optimum[openvino]"
+                "pip install openvino transformers"
             ) from e
         except Exception as e:
             logger.error(f"Failed to load OpenVINO model: {e}")
