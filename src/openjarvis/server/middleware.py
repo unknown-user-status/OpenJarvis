@@ -46,9 +46,19 @@ def create_security_middleware() -> Any:
             )
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
             response.headers["Permissions-Policy"] = (
-                "camera=(), microphone=(), geolocation=()"
+                "camera=self, microphone=self, geolocation=()"
             )
-            response.headers["Content-Security-Policy"] = "default-src 'self'"
+            # Relaxed CSP: allow same-origin + localhost API calls + inline
+            # scripts/styles needed by the React frontend.
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; "
+                "media-src 'self' blob:; "
+                "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; "
+                "worker-src 'self' blob:;"
+            )
             return response
 
     return SecurityHeadersMiddleware
@@ -61,6 +71,6 @@ SECURITY_HEADERS = {
     "X-XSS-Protection": "1; mode=block",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": "default-src 'self'",
+    "Permissions-Policy": "camera=self, microphone=self, geolocation=()",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:;",
 }
