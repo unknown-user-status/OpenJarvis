@@ -1,4 +1,6 @@
-"""Cloud inference engine — OpenAI, Anthropic, Google, and MiniMax API backends."""
+"""Cloud inference engine — OpenAI, Anthropic, Google, MiniMax, NVIDIA NIM,
+Groq, Mistral AI, xAI Grok, Perplexity, Cohere, and custom OpenAI-compatible
+API backends."""
 
 from __future__ import annotations
 
@@ -124,6 +126,65 @@ def _is_google_model(model: str) -> bool:
     return "gemini" in model.lower() and not _is_openrouter_model(model)
 
 
+# ── OpenAI-compatible providers (prefix → base_url, env_var) ───────────────
+# Models are prefixed with e.g. "nvidia/", "groq/", "mistral/", "xai/",
+# "perplexity/", "cohere/" so the engine can route them to the correct
+# provider without ambiguity.
+_COMPAT_PROVIDERS: Dict[str, Dict[str, str]] = {
+    "nvidia/": {
+        "base_url": "https://integrate.nvidia.com/v1",
+        "env_var": "NVIDIA_API_KEY",
+        "label": "NVIDIA NIM",
+    },
+    "groq/": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "env_var": "GROQ_API_KEY",
+        "label": "Groq",
+    },
+    "mistral/": {
+        "base_url": "https://api.mistral.ai/v1",
+        "env_var": "MISTRAL_API_KEY",
+        "label": "Mistral AI",
+    },
+    "xai/": {
+        "base_url": "https://api.x.ai/v1",
+        "env_var": "XAI_API_KEY",
+        "label": "xAI Grok",
+    },
+    "perplexity/": {
+        "base_url": "https://api.perplexity.ai",
+        "env_var": "PERPLEXITY_API_KEY",
+        "label": "Perplexity",
+    },
+    "cohere/": {
+        "base_url": "https://api.cohere.ai/compatibility/v1",
+        "env_var": "COHERE_API_KEY",
+        "label": "Cohere",
+    },
+}
+
+
+def _is_compat_model(model: str) -> bool:
+    """Return True if the model uses a named OpenAI-compatible provider prefix."""
+    return any(model.startswith(pfx) for pfx in _COMPAT_PROVIDERS)
+
+
+def _is_custom_model(model: str) -> bool:
+    """Return True for user-defined custom provider models (prefix 'custom/')."""
+    return model.startswith("custom/") and "|" in model
+
+
+def _parse_custom_model(model: str) -> tuple[str, str]:
+    """Split 'custom/<encoded_base_url>|<model_id>' into (base_url, model_id)."""
+    from urllib.parse import unquote
+    # Format: custom/<percent-encoded base_url>|<model_id>
+    rest = model[len("custom/"):]
+    sep = rest.index("|")
+    base_url = unquote(rest[:sep])
+    model_id = rest[sep + 1:]
+    return base_url, model_id
+
+
 def _is_openai_reasoning_model(model: str) -> bool:
     """Check if model is an OpenAI reasoning model that restricts temperature."""
     m = model.lower()
@@ -222,6 +283,8 @@ class CloudEngine(InferenceEngine):
         self._openrouter_client: Any = None
         self._minimax_client: Any = None
         self._codex_client: Any = None
+        # OpenAI-compatible provider clients: prefix -> openai.OpenAI instance
+        self._compat_clients: Dict[str, Any] = {}
         # Gemini thought_signatures: tool_call_id -> signature bytes
         self._thought_sigs: Dict[str, bytes] = {}
         self._init_clients()
@@ -288,6 +351,95 @@ class CloudEngine(InferenceEngine):
                 "token": codex_token,
                 "url": codex_url,
             }
+        # ── OpenAI-compatible providers ─────────────────────────────────────
+        for prefix, info in _COMPAT_PROVIDERS.items():
+            api_key = os.environ.get(info["env_var"])
+            if api_key:
+                try:
+                    import openai
+
+                    self._compat_clients[prefix] = openai.OpenAI(
+                        base_url=info["base_url"],
+                        api_key=api_key,
+                    )
+                except ImportError:
+                    pass
+
+    def _get_compat_client(self, model: str) -> tuple[Any, str]:
+        """Return (openai_client, actual_model_id) for a prefixed compat model."""
+        for prefix, info in _COMPAT_PROVIDERS.items():
+            if model.startswith(prefix):
+                client = self._compat_clients.get(prefix)
+                if client is None:
+                    raise EngineConnectionError(
+                        f"{info['label']} client not available — set {info['env_var']}"
+                    )
+                actual_model = model[len(prefix):]
+                return client, actual_model
+        raise EngineConnectionError(f"No compat provider found for model: {model}")
+
+    def _get_custom_client(self, model: str) -> tuple[Any, str]:
+        """Return (openai_client, actual_model_id) for a custom provider model."""
+        base_url, model_id = _parse_custom_model(model)
+        api_key = os.environ.get("CUSTOM_API_KEY", "none")
+        try:
+            import openai
+
+            client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        except ImportError as exc:
+            raise EngineConnectionError("openai package required for custom providers") from exc
+        return client, model_id
+
+    def _generate_compat(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Generate via any OpenAI-compatible provider (NVIDIA, Groq, Mistral, xAI, …)."""
+        if _is_custom_model(model):
+            client, actual_model = self._get_custom_client(model)
+        else:
+            client, actual_model = self._get_compat_client(model)
+        kwargs.pop("response_format", None)
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        t0 = time.monotonic()
+        resp = client.chat.completions.create(**create_kwargs)
+        elapsed = time.monotonic() - t0
+        choice = resp.choices[0]
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": actual_model,
+            "finish_reason": choice.finish_reason or "stop",
+            "cost_usd": estimate_cost(actual_model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+        }
+        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
 
     def _prepare_anthropic_messages(
         self,
@@ -884,6 +1036,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_openrouter(messages, **kw)
         if _is_minimax_model(model):
             return self._generate_minimax(messages, **kw)
+        if _is_compat_model(model) or _is_custom_model(model):
+            return self._generate_compat(messages, **kw)
         if _is_anthropic_model(model):
             return self._generate_anthropic(messages, **kw)
         if _is_google_model(model):
@@ -913,6 +1067,9 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_minimax_model(model):
             async for token in self._stream_minimax(messages, **kw):
+                yield token
+        elif _is_compat_model(model) or _is_custom_model(model):
+            async for token in self._stream_compat(messages, **kw):
                 yield token
         elif _is_anthropic_model(model):
             async for token in self._stream_anthropic(messages, **kw):
@@ -1120,6 +1277,33 @@ class CloudEngine(InferenceEngine):
             "stream": True,
         }
         resp = self._minimax_client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
+    async def _stream_compat(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        """Stream from any OpenAI-compatible provider (NVIDIA, Groq, Mistral, xAI, …)."""
+        if _is_custom_model(model):
+            client, actual_model = self._get_custom_client(model)
+        else:
+            client, actual_model = self._get_compat_client(model)
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        resp = client.chat.completions.create(**create_kwargs)
         for chunk in resp:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:

@@ -7,45 +7,181 @@ import { toast } from 'sonner';
 // Cloud / online model catalogue (used in agent model selectors)
 // ---------------------------------------------------------------------------
 const CLOUD_MODEL_GROUPS = [
+  // ── OpenRouter ─────────────────────────────────────────────────────────────
   {
-    group: 'OpenRouter',
+    group: 'OpenRouter — Paid',
     storageKey: 'openjarvis-openrouter-key',
     models: [
       { id: 'openrouter/auto', label: 'Auto (best available)' },
       { id: 'openrouter/openai/gpt-4o', label: 'GPT-4o' },
+      { id: 'openrouter/openai/gpt-4.1', label: 'GPT-4.1' },
+      { id: 'openrouter/openai/o3', label: 'o3 (reasoning)' },
+      { id: 'openrouter/openai/o4-mini', label: 'o4-mini (reasoning)' },
+      { id: 'openrouter/anthropic/claude-opus-4', label: 'Claude Opus 4' },
       { id: 'openrouter/anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
       { id: 'openrouter/google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' },
-      { id: 'openrouter/mistralai/mistral-large', label: 'Mistral Large' },
+      { id: 'openrouter/google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { id: 'openrouter/mistralai/mistral-large', label: 'Mistral Large 2' },
+      { id: 'openrouter/mistralai/codestral-latest', label: 'Codestral (code)' },
       { id: 'openrouter/deepseek/deepseek-r1', label: 'DeepSeek R1' },
-      { id: 'openrouter/qwen/qwen3-235b-a22b', label: 'Qwen3 235B' },
+      { id: 'openrouter/deepseek/deepseek-v3', label: 'DeepSeek V3' },
+      { id: 'openrouter/qwen/qwen3-235b-a22b', label: 'Qwen3 235B A22B' },
+      { id: 'openrouter/x-ai/grok-3', label: 'Grok 3' },
+      { id: 'openrouter/x-ai/grok-3-mini', label: 'Grok 3 Mini (reasoning)' },
+      { id: 'openrouter/perplexity/sonar-pro', label: 'Perplexity Sonar Pro (web)' },
     ],
   },
+  {
+    group: 'OpenRouter — Free',
+    storageKey: 'openjarvis-openrouter-key',
+    models: [
+      { id: 'openrouter/meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B ★ FREE' },
+      { id: 'openrouter/meta-llama/llama-3.1-405b-instruct:free', label: 'Llama 3.1 405B ★ FREE' },
+      { id: 'openrouter/deepseek/deepseek-r1:free', label: 'DeepSeek R1 ★ FREE' },
+      { id: 'openrouter/deepseek/deepseek-v3:free', label: 'DeepSeek V3 ★ FREE' },
+      { id: 'openrouter/deepseek/deepseek-r1-distill-llama-70b:free', label: 'DeepSeek R1 Distill 70B ★ FREE' },
+      { id: 'openrouter/google/gemma-3-27b-it:free', label: 'Gemma 3 27B IT ★ FREE' },
+      { id: 'openrouter/google/gemma-3-12b-it:free', label: 'Gemma 3 12B IT ★ FREE' },
+      { id: 'openrouter/mistralai/mistral-7b-instruct:free', label: 'Mistral 7B Instruct ★ FREE' },
+      { id: 'openrouter/qwen/qwen3-8b:free', label: 'Qwen3 8B ★ FREE' },
+      { id: 'openrouter/qwen/qwen3-14b:free', label: 'Qwen3 14B ★ FREE' },
+      { id: 'openrouter/qwen/qwen3-30b-a3b:free', label: 'Qwen3 30B A3B ★ FREE' },
+      { id: 'openrouter/qwen/qwen3-235b-a22b:free', label: 'Qwen3 235B A22B ★ FREE' },
+      { id: 'openrouter/microsoft/phi-4:free', label: 'Microsoft Phi-4 ★ FREE' },
+      { id: 'openrouter/microsoft/phi-4-reasoning:free', label: 'Phi-4 Reasoning ★ FREE' },
+      { id: 'openrouter/nvidia/llama-3.1-nemotron-ultra-253b-v1:free', label: 'Nemotron Ultra 253B ★ FREE' },
+      { id: 'openrouter/nvidia/llama-3.3-nemotron-super-49b-v1:free', label: 'Nemotron Super 49B ★ FREE' },
+    ],
+  },
+  // ── OpenAI ─────────────────────────────────────────────────────────────────
   {
     group: 'OpenAI',
     storageKey: 'openjarvis-openai-key',
     models: [
       { id: 'gpt-4o', label: 'GPT-4o' },
       { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      { id: 'gpt-4.1', label: 'GPT-4.1' },
+      { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+      { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano' },
       { id: 'gpt-5', label: 'GPT-5' },
-      { id: 'o3-mini', label: 'o3-mini' },
+      { id: 'gpt-5-mini', label: 'GPT-5 Mini' },
+      { id: 'o1', label: 'o1 (reasoning)' },
+      { id: 'o1-mini', label: 'o1-mini (reasoning)' },
+      { id: 'o3', label: 'o3 (reasoning)' },
+      { id: 'o3-mini', label: 'o3-mini (reasoning)' },
+      { id: 'o4-mini', label: 'o4-mini (reasoning)' },
     ],
   },
+  // ── Anthropic ──────────────────────────────────────────────────────────────
   {
     group: 'Anthropic',
     storageKey: 'openjarvis-anthropic-key',
     models: [
-      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
       { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
       { id: 'claude-haiku-3-5-20241022', label: 'Claude Haiku 3.5' },
+      { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
     ],
   },
+  // ── Google ─────────────────────────────────────────────────────────────────
   {
-    group: 'Google',
+    group: 'Google Gemini',
     storageKey: 'openjarvis-gemini-key',
     models: [
       { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+      { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+      { id: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
+      { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (2M ctx)' },
+      { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+    ],
+  },
+  // ── NVIDIA NIM ─────────────────────────────────────────────────────────────
+  {
+    group: 'NVIDIA NIM',
+    storageKey: 'openjarvis-nvidia-key',
+    models: [
+      { id: 'nvidia/meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct' },
+      { id: 'nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1', label: 'Nemotron Ultra 253B' },
+      { id: 'nvidia/nvidia/llama-3.3-nemotron-super-49b-v1', label: 'Nemotron Super 49B' },
+      { id: 'nvidia/deepseek-ai/deepseek-r1', label: 'DeepSeek R1' },
+      { id: 'nvidia/deepseek-ai/deepseek-v3', label: 'DeepSeek V3 0324' },
+      { id: 'nvidia/mistralai/mistral-large-2-instruct', label: 'Mistral Large 2' },
+      { id: 'nvidia/google/gemma-3-27b-it', label: 'Gemma 3 27B IT' },
+      { id: 'nvidia/microsoft/phi-4', label: 'Microsoft Phi-4' },
+      { id: 'nvidia/qwen/qwen3-235b-a22b', label: 'Qwen3 235B A22B' },
+      { id: 'nvidia/microsoft/phi-4-reasoning-plus', label: 'Phi-4 Reasoning Plus' },
+    ],
+  },
+  // ── Groq ───────────────────────────────────────────────────────────────────
+  {
+    group: 'Groq (ultra-fast)',
+    storageKey: 'openjarvis-groq-key',
+    models: [
+      { id: 'groq/llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
+      { id: 'groq/llama-3.1-70b-versatile', label: 'Llama 3.1 70B Versatile' },
+      { id: 'groq/llama-3.1-8b-instant', label: 'Llama 3.1 8B (instant)' },
+      { id: 'groq/deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill 70B' },
+      { id: 'groq/mixtral-8x7b-32768', label: 'Mixtral 8x7B (32K)' },
+      { id: 'groq/gemma2-9b-it', label: 'Gemma 2 9B IT' },
+      { id: 'groq/qwen-qwq-32b', label: 'QwQ 32B (reasoning)' },
+    ],
+  },
+  // ── Mistral AI ─────────────────────────────────────────────────────────────
+  {
+    group: 'Mistral AI',
+    storageKey: 'openjarvis-mistral-key',
+    models: [
+      { id: 'mistral/mistral-large-latest', label: 'Mistral Large' },
+      { id: 'mistral/mistral-medium-latest', label: 'Mistral Medium' },
+      { id: 'mistral/mistral-small-latest', label: 'Mistral Small' },
+      { id: 'mistral/codestral-latest', label: 'Codestral (code)' },
+      { id: 'mistral/devstral-small-2505', label: 'Devstral (agentic)' },
+      { id: 'mistral/magistral-medium-2506', label: 'Magistral Medium (reasoning)' },
+      { id: 'mistral/magistral-small-2506', label: 'Magistral Small (reasoning)' },
+    ],
+  },
+  // ── xAI Grok ───────────────────────────────────────────────────────────────
+  {
+    group: 'xAI Grok',
+    storageKey: 'openjarvis-xai-key',
+    models: [
+      { id: 'xai/grok-3', label: 'Grok 3' },
+      { id: 'xai/grok-3-mini', label: 'Grok 3 Mini (reasoning)' },
+      { id: 'xai/grok-3-fast', label: 'Grok 3 Fast' },
+      { id: 'xai/grok-2-1212', label: 'Grok 2' },
+    ],
+  },
+  // ── Perplexity ─────────────────────────────────────────────────────────────
+  {
+    group: 'Perplexity (web search)',
+    storageKey: 'openjarvis-perplexity-key',
+    models: [
+      { id: 'perplexity/sonar-pro', label: 'Sonar Pro (web)' },
+      { id: 'perplexity/sonar', label: 'Sonar (web)' },
+      { id: 'perplexity/sonar-reasoning-pro', label: 'Sonar Reasoning Pro (web)' },
+      { id: 'perplexity/sonar-reasoning', label: 'Sonar Reasoning (web)' },
+      { id: 'perplexity/sonar-deep-research', label: 'Sonar Deep Research' },
+    ],
+  },
+  // ── Cohere ─────────────────────────────────────────────────────────────────
+  {
+    group: 'Cohere',
+    storageKey: 'openjarvis-cohere-key',
+    models: [
+      { id: 'cohere/command-r-plus', label: 'Command R+ (128K)' },
+      { id: 'cohere/command-r', label: 'Command R' },
+      { id: 'cohere/command-a-03-2025', label: 'Command A (latest)' },
+    ],
+  },
+  // ── Custom Provider ─────────────────────────────────────────────────────────
+  {
+    group: 'Custom Provider',
+    storageKey: '',  // no key check — user manages their own
+    models: [
+      { id: 'custom/__', label: '⚙ Enter custom base URL + model ID…' },
     ],
   },
 ];
@@ -303,6 +439,8 @@ interface WizardState {
   name: string;
   instruction: string;
   model: string;
+  customBaseUrl: string;
+  customModelId: string;
   scheduleType: string;
   scheduleValue: string;
   selectedTools: string[];
@@ -705,6 +843,8 @@ function LaunchWizard({
     name: '',
     instruction: '',
     model: '',
+    customBaseUrl: '',
+    customModelId: '',
     scheduleType: 'manual',
     scheduleValue: '',
     selectedTools: [],
@@ -795,7 +935,14 @@ function LaunchWizard({
       };
       if (wizard.budget) config.budget = parseFloat(wizard.budget);
       if (wizard.instruction.trim()) config.instruction = wizard.instruction.trim();
-      if (wizard.model) config.model = wizard.model;
+      // Resolve custom provider model string
+      if (wizard.model === 'custom/__') {
+        if (wizard.customBaseUrl && wizard.customModelId) {
+          config.model = `custom/${encodeURIComponent(wizard.customBaseUrl)}|${wizard.customModelId}`;
+        }
+      } else if (wizard.model) {
+        config.model = wizard.model;
+      }
       if (wizard.routerPolicy) config.router_policy = wizard.routerPolicy;
 
       await createManagedAgent({
@@ -953,7 +1100,8 @@ function LaunchWizard({
                   </optgroup>
                 )}
                 {CLOUD_MODEL_GROUPS.map((grp) => {
-                  const hasKey = (() => { try { return !!localStorage.getItem(grp.storageKey); } catch { return false; } })();
+                  const isCustom = grp.group === 'Custom Provider';
+                  const hasKey = isCustom ? true : (() => { try { return !!localStorage.getItem(grp.storageKey); } catch { return false; } })();
                   return (
                     <optgroup key={grp.group} label={`── ${grp.group}${hasKey ? '' : ' (no key)'}`}>
                       {grp.models.map((m) => (
@@ -965,6 +1113,27 @@ function LaunchWizard({
                   );
                 })}
               </select>
+              {wizard.model === 'custom/__' && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  <input
+                    value={wizard.customBaseUrl}
+                    onChange={(e) => setWizard((w) => ({ ...w, customBaseUrl: e.target.value }))}
+                    placeholder="Base URL  e.g. https://my-server.com/v1"
+                    className="w-full px-2 py-1 rounded text-xs"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  />
+                  <input
+                    value={wizard.customModelId}
+                    onChange={(e) => setWizard((w) => ({ ...w, customModelId: e.target.value }))}
+                    placeholder="Model ID  e.g. my-llm-v1"
+                    className="w-full px-2 py-1 rounded text-xs"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  />
+                  <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Must be OpenAI-compatible. Set API key via CUSTOM_API_KEY env var.
+                  </p>
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule</label>
@@ -1555,7 +1724,8 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
             </optgroup>
           )}
           {CLOUD_MODEL_GROUPS.map((grp) => {
-            const hasKey = (() => { try { return !!localStorage.getItem(grp.storageKey); } catch { return false; } })();
+            const isCustom = grp.group === 'Custom Provider';
+            const hasKey = isCustom ? true : (() => { try { return !!localStorage.getItem(grp.storageKey); } catch { return false; } })();
             return (
               <optgroup key={grp.group} label={`── ${grp.group}${hasKey ? '' : ' (no key)'}`}>
                 {grp.models.map((m) => (

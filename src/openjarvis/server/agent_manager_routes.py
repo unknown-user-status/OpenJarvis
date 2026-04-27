@@ -148,7 +148,24 @@ def _parse_param_count(model_name: str) -> float:
     return float(m.group(1)) if m else 0.0
 
 
-_CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-", "openrouter/", "chatgpt-", "MiniMax-")
+_CLOUD_PREFIXES = (
+    # OpenAI
+    "gpt-", "o1-", "o1", "o3", "o3-", "o4-", "chatgpt-",
+    # Anthropic
+    "claude-",
+    # Google
+    "gemini-",
+    # OpenRouter (all models via openrouter/ prefix)
+    "openrouter/",
+    # MiniMax
+    "MiniMax-",
+    # Codex (OpenAI Responses API)
+    "codex/",
+    # OpenAI-compatible providers (prefix-routed)
+    "nvidia/", "groq/", "mistral/", "xai/", "perplexity/", "cohere/",
+    # Custom user-defined provider
+    "custom/",
+)
 
 
 def _pick_recommended_model(

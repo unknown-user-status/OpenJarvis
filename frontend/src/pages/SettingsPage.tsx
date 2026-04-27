@@ -335,23 +335,47 @@ export function SettingsPage() {
                 <CloudProviderStatus label="Anthropic" storageKey="openjarvis-anthropic-key" />
                 <CloudProviderStatus label="Google" storageKey="openjarvis-gemini-key" />
                 <CloudProviderStatus label="OpenRouter" storageKey="openjarvis-openrouter-key" />
+                <CloudProviderStatus label="NVIDIA" storageKey="openjarvis-nvidia-key" />
+                <CloudProviderStatus label="Groq" storageKey="openjarvis-groq-key" />
+                <CloudProviderStatus label="Mistral" storageKey="openjarvis-mistral-key" />
+                <CloudProviderStatus label="xAI" storageKey="openjarvis-xai-key" />
+                <CloudProviderStatus label="Perplexity" storageKey="openjarvis-perplexity-key" />
+                <CloudProviderStatus label="Cohere" storageKey="openjarvis-cohere-key" />
               </div>
             </SettingRow>
           </Section>
 
           {/* API Keys */}
           <Section title="API Keys">
-            <SettingRow label="OpenAI" description="GPT-4, GPT-3.5, etc.">
+            <SettingRow label="OpenAI" description="GPT-4o, GPT-4.1, o3, o4-mini, GPT-5">
               <ApiKeyInput storageKey="openjarvis-openai-key" placeholder="sk-..." />
             </SettingRow>
-            <SettingRow label="Anthropic" description="Claude models">
+            <SettingRow label="Anthropic" description="Claude Opus 4, Sonnet 4, Haiku 4.5">
               <ApiKeyInput storageKey="openjarvis-anthropic-key" placeholder="sk-ant-..." />
             </SettingRow>
-            <SettingRow label="Google" description="Gemini models">
+            <SettingRow label="Google" description="Gemini 2.5 Pro/Flash, 2.0, 1.5">
               <ApiKeyInput storageKey="openjarvis-gemini-key" placeholder="AI..." />
             </SettingRow>
-            <SettingRow label="OpenRouter" description="Multi-provider routing">
+            <SettingRow label="OpenRouter" description="100+ models, includes free tier">
               <ApiKeyInput storageKey="openjarvis-openrouter-key" placeholder="sk-or-..." />
+            </SettingRow>
+            <SettingRow label="NVIDIA NIM" description="Nemotron, Llama, DeepSeek, Gemma via NVIDIA">
+              <ApiKeyInput storageKey="openjarvis-nvidia-key" placeholder="nvapi-..." />
+            </SettingRow>
+            <SettingRow label="Groq" description="Ultra-fast Llama, Mixtral, Gemma inference">
+              <ApiKeyInput storageKey="openjarvis-groq-key" placeholder="gsk_..." />
+            </SettingRow>
+            <SettingRow label="Mistral AI" description="Mistral Large, Codestral, Magistral">
+              <ApiKeyInput storageKey="openjarvis-mistral-key" placeholder="..." />
+            </SettingRow>
+            <SettingRow label="xAI Grok" description="Grok 3, Grok 3 Mini (reasoning)">
+              <ApiKeyInput storageKey="openjarvis-xai-key" placeholder="xai-..." />
+            </SettingRow>
+            <SettingRow label="Perplexity" description="Sonar models with real-time web search">
+              <ApiKeyInput storageKey="openjarvis-perplexity-key" placeholder="pplx-..." />
+            </SettingRow>
+            <SettingRow label="Cohere" description="Command R+, Command A">
+              <ApiKeyInput storageKey="openjarvis-cohere-key" placeholder="..." />
             </SettingRow>
           </Section>
 
