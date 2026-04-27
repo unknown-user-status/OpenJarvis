@@ -997,6 +997,69 @@ BUILTIN_MODELS: List[ModelSpec] = [
             "url": "https://ai.google.dev/gemini-api/docs/models",
         },
     ),
+    # -----------------------------------------------------------------------
+    # NPU-optimized models for Intel OpenVINO
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="phi-3-mini-4k-instruct",
+        name="Phi-3 Mini 4K",
+        parameter_count_b=3.8,
+        context_length=4096,
+        supported_engines=("openvino",),
+        provider="microsoft",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "microsoft/phi-3-mini-4k-instruct",
+            "npu_optimized": True,
+            "quantization": "int8",
+            "recommended_for": "coding,reasoning",
+        },
+    ),
+    ModelSpec(
+        model_id="tinyllama-1.1b",
+        name="TinyLlama 1.1B",
+        parameter_count_b=1.1,
+        context_length=2048,
+        supported_engines=("openvino",),
+        provider="tinyllama",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "TinyLlama/TinyLlama-1.1B",
+            "npu_optimized": True,
+            "quantization": "int8",
+            "recommended_for": "general,chat",
+        },
+    ),
+    ModelSpec(
+        model_id="gemma-2b",
+        name="Gemma 2B",
+        parameter_count_b=2.0,
+        context_length=2048,
+        supported_engines=("openvino",),
+        provider="google",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "google/gemma-2b",
+            "npu_optimized": True,
+            "quantization": "int8",
+            "recommended_for": "creative,writing",
+        },
+    ),
+    ModelSpec(
+        model_id="llama-3.2-3b",
+        name="Llama 3.2 3B",
+        parameter_count_b=3.0,
+        context_length=2048,
+        supported_engines=("openvino",),
+        provider="meta",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "meta-llama/Llama-3.2-3B",
+            "npu_optimized": True,
+            "quantization": "int8",
+            "recommended_for": "summarization,qa",
+        },
+    ),
 ]
 
 

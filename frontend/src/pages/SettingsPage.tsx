@@ -21,6 +21,7 @@ import {
 import { useAppStore, type ThemeMode } from '../lib/store';
 import { checkHealth, fetchSpeechHealth, getMemoryStats, getBudgetStatus, setBudgetLimits } from '../lib/api';
 import { MCPPanel } from '../components/Settings/MCPPanel';
+import { NPUConfigPanel } from '../components/Settings/NPUConfigPanel';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -389,6 +390,11 @@ export function SettingsPage() {
 
           {/* MCP Servers */}
           <MCPPanel />
+
+          {/* NPU Configuration */}
+          <Section title="Intel NPU / OpenVINO">
+            <NPUConfigPanel />
+          </Section>
 
           {/* Memory */}
           <Section title="Memory">

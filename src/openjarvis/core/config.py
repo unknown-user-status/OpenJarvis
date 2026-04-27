@@ -225,6 +225,9 @@ def recommend_engine(hw: HardwareInfo) -> str:
         if any(kw in gpu.name for kw in amd_datacenter_keywords):
             return "vllm"
         return "lemonade"
+    if gpu.vendor == "intel":
+        # Intel integrated GPU/NPU → OpenVINO for optimal performance
+        return "openvino"
     return "llamacpp"
 
 
@@ -252,7 +255,7 @@ _MODEL_TIER_FALLBACK = "qwen3.5:27b"
 
 
 def recommend_model(hw: HardwareInfo, engine: str) -> str:
-    """Suggest the best Qwen3.5 model that fits the detected hardware.
+    """Suggest the best model that fits the detected hardware and engine.
 
     Uses an explicit tier table mapping available memory to model size.
     Falls back to scanning the full catalog if the tiered model is not
@@ -267,7 +270,25 @@ def recommend_model(hw: HardwareInfo, engine: str) -> str:
     # Build a lookup for quick engine-compatibility checks
     catalog = {spec.model_id: spec for spec in BUILTIN_MODELS}
 
-    # Try explicit tier mapping first
+    # Special handling for OpenVINO/NPU - recommend NPU-optimized models
+    if engine == "openvino":
+        npu_candidates = [
+            s
+            for s in BUILTIN_MODELS
+            if engine in s.supported_engines
+            and s.metadata.get("npu_optimized", False)
+        ]
+        if npu_candidates:
+            # Sort by parameter count and recommend the largest that fits
+            npu_candidates.sort(key=lambda s: s.parameter_count_b, reverse=True)
+            for s in npu_candidates:
+                estimated_gb = s.parameter_count_b * 0.3 * 1.1  # INT8 quantization is more efficient
+                if estimated_gb <= available_gb:
+                    return s.model_id
+            # Return smallest NPU model if none fit
+            return npu_candidates[-1].model_id
+
+    # Try explicit tier mapping first for other engines
     model_id = _MODEL_TIER_FALLBACK
     for max_ram, tier_model in _MODEL_TIERS:
         if available_gb <= max_ram:
@@ -394,6 +415,16 @@ class LemonadeEngineConfig:
     host: str = "http://localhost:8000"
 
 
+@dataclass(slots=True)
+class OpenVINOEngineConfig:
+    """Per-engine config for OpenVINO Intel NPU/GPU acceleration."""
+
+    model_path: str = "microsoft/phi-3-mini-4k-instruct"
+    device: str = "CPU"  # CPU, GPU, NPU, or AUTO
+    load_in_8bit: bool = True
+    cache_dir: str | None = None
+
+
 @dataclass
 class EngineConfig:
     """Inference engine settings with nested per-engine configs."""
@@ -411,6 +442,7 @@ class EngineConfig:
     apple_fm: AppleFmEngineConfig = field(default_factory=AppleFmEngineConfig)
     gemma_cpp: GemmaCppEngineConfig = field(default_factory=GemmaCppEngineConfig)
     lemonade: LemonadeEngineConfig = field(default_factory=LemonadeEngineConfig)
+    openvino: OpenVINOEngineConfig = field(default_factory=OpenVINOEngineConfig)
 
     # Backward-compat properties for old flat attribute names
     @property
