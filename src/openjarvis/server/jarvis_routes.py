@@ -139,8 +139,22 @@ def _dispatch_plugin(command: str, api_key: str) -> Optional[str]:
         return None
 
 
+_GREETINGS = {
+    "hi", "hi jarvis", "hello", "hello jarvis", "hey", "hey jarvis",
+    "good morning", "good afternoon", "good evening", "yo", "sup",
+    "hi there", "hello there",
+}
+
+def _is_greeting(text: str) -> bool:
+    return text.strip().lower().rstrip("!.,?") in _GREETINGS
+
+
 def _llm_answer(question: str, api_key: str) -> tuple[str, int, int]:
     """Return (response_text, prompt_tokens, completion_tokens)."""
+    # Short-circuit for pure greetings — no LLM call needed
+    if _is_greeting(question):
+        return "Hello! How are you? How can I help you today?", 0, 0
+
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
@@ -148,11 +162,9 @@ def _llm_answer(question: str, api_key: str) -> tuple[str, int, int]:
         # Build memory-aware system prompt
         system_prompt = (
             "You are Jarvis, a friendly and helpful personal AI assistant. "
-            "When greeted (e.g. 'hi', 'hello', 'hey'), always respond warmly and naturally, "
-            "for example: 'Hello! How are you? How can I help you today?' — never mention "
-            "project details or code unless the user asks. "
             "Give concise, helpful answers. Be accurate. Keep responses under 3 sentences "
-            "unless the question genuinely needs more detail."
+            "unless the question genuinely needs more detail. "
+            "The memory context below is for background only — do not volunteer it unless relevant."
         )
         try:
             from openjarvis.memory.memory_manager import load_memory, format_memory_for_prompt

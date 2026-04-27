@@ -4,8 +4,12 @@ import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
 import { StreamingDots } from './StreamingDots';
 import { useAppStore } from '../../lib/store';
-import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X } from 'lucide-react';
+import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X, Volume2, VolumeX } from 'lucide-react';
 import { listConnectors } from '../../lib/connectors-api';
+import { getBase } from '../../lib/api';
+
+const TTS_VOICE = 'hannah';
+const TTS_STORAGE_KEY = 'openjarvis-chat-tts-on';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -22,6 +26,63 @@ export function ChatArea() {
   const navigate = useNavigate();
   const listRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
+
+  // TTS state
+  const [ttsOn, setTtsOn] = useState(() => {
+    try { return localStorage.getItem(TTS_STORAGE_KEY) !== 'false'; } catch { return true; }
+  });
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const prevStreamingRef = useRef(false);
+  const lastSpokenIdRef = useRef<string>('');
+
+  const toggleTts = useCallback(() => {
+    setTtsOn((v) => {
+      const next = !v;
+      try { localStorage.setItem(TTS_STORAGE_KEY, String(next)); } catch {}
+      if (!next && audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+      return next;
+    });
+  }, []);
+
+  const speakText = useCallback(async (text: string) => {
+    if (!text.trim()) return;
+    // Strip markdown symbols for cleaner speech
+    const clean = text.replace(/[#*`_~\[\]()]/g, '').replace(/\n+/g, ' ').trim();
+    // Truncate to 400 chars so TTS stays snappy
+    const snippet = clean.length > 400 ? clean.slice(0, 400) + '...' : clean;
+    try {
+      const res = await fetch(`${getBase()}/api/jarvis/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: snippet, voice: TTS_VOICE }),
+      });
+      if (!res.ok) return;
+      // Endpoint returns raw audio/wav bytes
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current.src); }
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play().catch(() => {});
+    } catch { /* TTS unavailable — silent fail */ }
+  }, []);
+
+  // Auto-speak when streaming finishes
+  useEffect(() => {
+    const wasStreaming = prevStreamingRef.current;
+    const isStreaming = streamState.isStreaming;
+    prevStreamingRef.current = isStreaming;
+
+    if (wasStreaming && !isStreaming && ttsOn) {
+      // Find the last assistant message
+      const last = [...messages].reverse().find((m) => m.role === 'assistant');
+      if (last && last.id !== lastSpokenIdRef.current && last.content) {
+        lastSpokenIdRef.current = last.id;
+        speakText(last.content);
+      }
+    }
+  }, [streamState.isStreaming, messages, ttsOn, speakText]);
 
   // Check if any data sources are connected
   const [hasConnectedSources, setHasConnectedSources] = useState<boolean | null>(null);
@@ -52,7 +113,16 @@ export function ChatArea() {
   return (
     <div className="flex flex-col h-full">
       {/* Toggle bar */}
-      <div className="flex items-center justify-end px-3 py-1.5 shrink-0">
+      <div className="flex items-center justify-end gap-1 px-3 py-1.5 shrink-0">
+        {/* TTS toggle */}
+        <button
+          onClick={toggleTts}
+          className="p-1.5 rounded-md transition-colors cursor-pointer"
+          style={{ color: ttsOn ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }}
+          title={ttsOn ? 'Voice response ON — click to mute' : 'Voice response OFF — click to enable'}
+        >
+          {ttsOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+        </button>
         <button
           onClick={toggleSystemPanel}
           className="p-1.5 rounded-md transition-colors cursor-pointer"
