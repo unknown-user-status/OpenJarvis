@@ -149,6 +149,15 @@ Full documentation — including Docker deployment, cloud engines, development s
 
 ## Recent Improvements
 
+### Stanford Five-Primitive Architecture Implementation (2026-04)
+Implemented Stanford's OpenJarvis five-primitive architecture across the entire stack:
+
+- **Intelligence**: Added `/v1/intelligence/hardware` endpoint that detects system specs (RAM, GPU VRAM, CPU) and recommends appropriate model tiers. HardwarePanel UI component displays hardware info and model recommendations.
+- **Engine**: Enhanced telemetry with energy/cost tracking in XRayFooter, added `/v1/telemetry/stats` endpoint for aggregate performance metrics.
+- **Agents**: Added `/v1/agents` endpoint listing all available agents and AgentSelector component for switching between agent types in the chat UI.
+- **Tools & Memory**: Added MCP server management endpoints (`/v1/mcp/servers` GET/POST/DELETE) and MCPPanel settings UI for managing external tools.
+- **Learning**: Added `/v1/learning/status` and `/v1/learning/trigger` endpoints with LearningPanel dashboard component for optimization controls.
+
 ### Voice Mode v5 — Always On, Human-Like (2026-04)
 `jarvis-voice.py` is now a true always-on assistant — no button pressing, no fixed recording windows.
 
