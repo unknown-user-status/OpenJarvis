@@ -46,5 +46,8 @@ uv run python jarvis-voice.py
   is a `list[tuple[str, engine]]`, not a dict.
 - Chat error surface — `isError` flag on `ChatMessage` renders red banner instead
   of a normal bubble when the backend returns a generation error.
-- Voice mode — `ENERGY_THRESHOLD = 0.015` in `jarvis-voice.py`. Raise to `0.025`
-  in noisy environments to avoid false triggers.
+- Voice mode v5 — always-on VAD, auto mic calibration, full machine control via pyautogui + psutil.
+  `ENERGY_THRESHOLD = 0.018` in `jarvis-voice.py`. Calibration at startup adjusts it automatically.
+  Raise to `0.025` manually in noisy environments.
+- OpenJarvis-Voice.bat now uses `.venv\Scripts\python.exe` directly (not `uv run`) for reliability.
+- `psutil` added as a project dependency (for close-app + list-apps commands).

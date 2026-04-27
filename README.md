@@ -149,15 +149,18 @@ Full documentation — including Docker deployment, cloud engines, development s
 
 ## Recent Improvements
 
-### Voice Mode v4 — Continuous Conversation (2026-04)
-`jarvis-voice.py` now works like a real conversation — no more pressing Enter before each reply.
+### Voice Mode v5 — Always On, Human-Like (2026-04)
+`jarvis-voice.py` is now a true always-on assistant — no button pressing, no fixed recording windows.
 
-- **Hands-free** — Voice Activity Detection (VAD) automatically detects when you start and stop speaking. Just talk.
-- **Conversation memory** — full session history is kept and sent to the LLM on every turn, so Jarvis remembers what you said moments ago and can answer follow-up questions naturally.
-- **Voice-optimised replies** — no markdown or bullet points; short, spoken-style answers.
-- Launch via `OpenJarvis-Voice.bat` or `uv run python jarvis-voice.py`.
+- **Always listening in standby** — Jarvis silently monitors the microphone 24/7 and reacts the moment you speak.
+- **Auto mic calibration** — measures ambient noise at startup and sets the detection threshold automatically.
+- **Hands-free VAD** — detects when you start talking and stops recording 1 second after you go quiet. No timers.
+- **Full machine control** — open/close any app, type text, click, scroll, take screenshots, set volume, control browser tabs, manage clipboard, search the web, and more — all by voice.
+- **Conversation memory** — full session history sent to LLM on every turn for natural back-and-forth.
+- **Standby until shutdown** — say *"shutdown Jarvis"* to stop. Otherwise Jarvis stays ready forever.
+- Launch via `OpenJarvis-Voice.bat` (now uses `.venv\Scripts\python.exe` directly for reliability).
 
-> **Tip:** if your mic is sensitive, raise `ENERGY_THRESHOLD` at the top of `jarvis-voice.py` (e.g. `0.025`) to reduce false triggers.
+> **Tip:** if Jarvis false-triggers on background noise, raise `ENERGY_THRESHOLD` at the top of `jarvis-voice.py` (e.g. `0.025`).
 
 ### Model Download — Correct Qwen3 Tags + Engine Fix (2026-04)
 - Fixed "Model pulling is only supported with the Ollama engine" error that appeared when any cloud API key was set alongside Ollama. The engine-detection now walks the full wrapper chain (`InstrumentedEngine → GuardrailsEngine → MultiEngine`).
