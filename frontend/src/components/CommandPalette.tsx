@@ -5,21 +5,18 @@ import { pullModel, deleteModel, fetchModels, preloadModel, isTauri, type PullPr
 
 /** Popular models that users can download from the catalogue. */
 const CATALOGUE_MODELS = [
-  // Qwen 3.5 — latest multimodal series (vision + tools + thinking)
-  { id: 'qwen3.5:0.8b', size: '~1 GB',  desc: 'Qwen 3.5 0.8B — fast, lightweight (vision)' },
-  { id: 'qwen3.5:2b',   size: '~2.7 GB', desc: 'Qwen 3.5 2B (vision)' },
-  { id: 'qwen3.5:4b',   size: '~3.4 GB', desc: 'Qwen 3.5 4B — recommended (vision)' },
-  { id: 'qwen3.5:9b',   size: '~6.6 GB', desc: 'Qwen 3.5 9B ★ default (vision)' },
-  { id: 'qwen3.5:27b',  size: '~17 GB',  desc: 'Qwen 3.5 27B (vision)' },
-  { id: 'qwen3.5:35b',  size: '~24 GB',  desc: 'Qwen 3.5 35B (vision)' },
-  { id: 'qwen3.5:122b', size: '~81 GB',  desc: 'Qwen 3.5 122B — largest (vision)' },
-  // Qwen 3 — text reasoning + tools
-  { id: 'qwen3:0.6b',   size: '~523 MB', desc: 'Qwen 3 0.6B — smallest' },
-  { id: 'qwen3:1.7b',   size: '~1.4 GB', desc: 'Qwen 3 1.7B' },
-  { id: 'qwen3:4b',     size: '~2.5 GB', desc: 'Qwen 3 4B (256K context)' },
-  { id: 'qwen3:8b',     size: '~5.2 GB', desc: 'Qwen 3 8B ★ default' },
-  { id: 'qwen3:14b',    size: '~9.3 GB', desc: 'Qwen 3 14B' },
-  { id: 'qwen3:32b',    size: '~20 GB',  desc: 'Qwen 3 32B' },
+  // Qwen 3 — reasoning + tools + thinking (text)
+  { id: 'qwen3:0.6b',          size: '~523 MB', desc: 'Qwen 3 0.6B — smallest, fastest' },
+  { id: 'qwen3:1.7b',          size: '~1.4 GB', desc: 'Qwen 3 1.7B' },
+  { id: 'qwen3:4b',            size: '~2.5 GB', desc: 'Qwen 3 4B — recommended default' },
+  { id: 'qwen3:8b',            size: '~5.2 GB', desc: 'Qwen 3 8B ★ best balance' },
+  { id: 'qwen3:14b',           size: '~9.3 GB', desc: 'Qwen 3 14B' },
+  { id: 'qwen3:30b-a3b',       size: '~18 GB',  desc: 'Qwen 3 30B MoE (A3B active)' },
+  { id: 'qwen3:32b',           size: '~20 GB',  desc: 'Qwen 3 32B — high quality' },
+  // Qwen 2.5 VL — vision + language
+  { id: 'qwen2.5vl:3b',        size: '~2.3 GB', desc: 'Qwen 2.5 VL 3B — vision, fast' },
+  { id: 'qwen2.5vl:7b',        size: '~5.4 GB', desc: 'Qwen 2.5 VL 7B — vision ★' },
+  { id: 'qwen2.5vl:32b',       size: '~20 GB',  desc: 'Qwen 2.5 VL 32B — vision, large' },
   // Llama
   { id: 'llama3.2:3b',  size: '~2 GB',   desc: 'Llama 3.2 3B — fast' },
   { id: 'llama3.3:latest', size: '~4.9 GB', desc: 'Llama 3.3 8B' },

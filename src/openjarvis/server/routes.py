@@ -468,54 +468,58 @@ async def list_models(request: Request) -> ModelListResponse:
     )
 
 
+def _iter_engines(engine: object):
+    """Yield every engine reachable by recursively unwrapping wrapper layers.
+
+    Handles InstrumentedEngine (._inner), GuardrailsEngine (._engine),
+    MultiEngine (._engines dict), and any similar single-wrapper pattern.
+    Guards against infinite loops via a visited set.
+    """
+    visited: set = set()
+    queue = [engine]
+    while queue:
+        node = queue.pop()
+        if node is None or id(node) in visited:
+            continue
+        visited.add(id(node))
+        yield node
+        # Single-engine wrappers
+        for attr in ("_inner", "_engine", "engine"):
+            child = getattr(node, attr, None)
+            if child is not None and child is not node:
+                queue.append(child)
+                break  # only follow the first match per node to avoid duplicates
+        # MultiEngine: expose all sub-engines
+        # _engines is list[tuple[str, engine]] — iterate accordingly
+        try:
+            from openjarvis.engine.multi import MultiEngine
+            if isinstance(node, MultiEngine):
+                for _key, sub in node._engines:
+                    queue.append(sub)
+        except Exception:
+            pass
+
+
 def _get_ollama_host(request: Request) -> str:
-    """Return the Ollama host URL, checking engine state and falling back to default."""
+    """Return the Ollama host URL by searching the full engine wrapper chain."""
     engine = request.app.state.engine
-    # Unwrap InstrumentedEngine / MultiEngine wrappers to find the real Ollama engine
-    inner = engine
-    for attr in ("_inner", "_engine", "engine"):
-        candidate = getattr(inner, attr, None)
-        if candidate is not None:
-            inner = candidate
-            break
-    # MultiEngine: iterate sub-engines to find the Ollama one
-    try:
-        from openjarvis.engine.multi import MultiEngine
-        if isinstance(inner, MultiEngine):
-            for sub in inner._engines.values():
-                if getattr(sub, "engine_id", "") == "ollama":
-                    inner = sub
-                    break
-    except Exception:
-        pass
-    return getattr(inner, "_host", None) or getattr(engine, "_host", None) or "http://localhost:11434"
+    for node in _iter_engines(engine):
+        if getattr(node, "engine_id", "") == "ollama":
+            host = getattr(node, "_host", None)
+            if host:
+                return host
+    return getattr(engine, "_host", None) or "http://localhost:11434"
 
 
 def _is_ollama_available(request: Request) -> bool:
-    """Return True if any Ollama engine is configured."""
-    engine = request.app.state.engine
+    """Return True if any Ollama engine is reachable in the engine wrapper chain."""
     engine_name = getattr(request.app.state, "engine_name", "")
     if engine_name == "ollama":
         return True
-    if getattr(engine, "engine_id", "") == "ollama":
-        return True
-    # Check wrappers
-    for attr in ("_inner", "_engine", "engine"):
-        inner = getattr(engine, attr, None)
-        if inner and getattr(inner, "engine_id", "") == "ollama":
-            return True
-    # MultiEngine
-    try:
-        from openjarvis.engine.multi import MultiEngine
-        inner2 = getattr(engine, "_inner", engine)
-        if isinstance(inner2, MultiEngine):
-            return any(
-                getattr(e, "engine_id", "") == "ollama"
-                for e in inner2._engines.values()
-            )
-    except Exception:
-        pass
-    return False
+    return any(
+        getattr(node, "engine_id", "") == "ollama"
+        for node in _iter_engines(request.app.state.engine)
+    )
 
 
 @router.post("/v1/models/pull")
