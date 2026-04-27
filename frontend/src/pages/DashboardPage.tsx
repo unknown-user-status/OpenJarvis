@@ -3,6 +3,8 @@ import { EnergyDashboard } from '../components/Dashboard/EnergyDashboard';
 import { CostComparison } from '../components/Dashboard/CostComparison';
 import { SavingsSummaryCard } from '../components/Dashboard/SavingsSummaryCard';
 import { TraceDebugger } from '../components/Dashboard/TraceDebugger';
+import { HardwarePanel } from '../components/Dashboard/HardwarePanel';
+import { LearningPanel } from '../components/Dashboard/LearningPanel';
 import { checkHealth } from '../lib/api';
 import { useAppStore } from '../lib/store';
 import { useNavigate } from 'react-router';
@@ -223,13 +225,19 @@ export function DashboardPage() {
 
         <DashboardInfoBar />
 
-        <div className="mb-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
           <SavingsSummaryCard />
+          <HardwarePanel />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
           <EnergyDashboard />
           <CostComparison />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <LearningPanel />
+          <div></div> {/* Placeholder for symmetry */}
         </div>
 
         <TraceDebugger />

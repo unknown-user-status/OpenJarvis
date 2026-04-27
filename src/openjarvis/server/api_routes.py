@@ -738,6 +738,41 @@ async def learning_policy(request: Request):
     return result
 
 
+@learning_router.post("/trigger")
+async def trigger_learning(request: Request):
+    """Manually trigger a learning update cycle."""
+    try:
+        from openjarvis.learning.learning_orchestrator import LearningOrchestrator
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, load_config
+        from openjarvis.traces.store import TraceStore
+        
+        config = load_config()
+        if not config.learning.enabled:
+            return {"success": False, "error": "Learning is disabled in configuration"}
+        
+        # Initialize trace store and orchestrator
+        trace_store = TraceStore(DEFAULT_CONFIG_DIR / "traces.db")
+        orchestrator = LearningOrchestrator(
+            trace_store=trace_store,
+            config_dir=DEFAULT_CONFIG_DIR,
+        )
+        
+        # Run learning cycle (this may take time)
+        result = orchestrator.run_cycle()
+        
+        return {
+            "success": True,
+            "result": {
+                "traces_processed": result.get("traces_processed", 0),
+                "models_updated": result.get("models_updated", []),
+                "improvement": result.get("improvement", 0.0),
+            }
+        }
+    except Exception as exc:
+        logger.error("Learning trigger failed: %s", exc)
+        return {"success": False, "error": str(exc)}
+
+
 # ---- Speech routes ----
 
 speech_router = APIRouter(prefix="/v1/speech", tags=["speech"])

@@ -277,6 +277,62 @@ export async function fetchTelemetry(): Promise<unknown> {
   return res.json();
 }
 
+export async function fetchHardwareInfo(): Promise<any> {
+  const res = await fetch(`${getBase()}/v1/intelligence/hardware`);
+  if (!res.ok) throw new Error('hardware info unavailable');
+  return res.json();
+}
+
+export async function fetchAgents(): Promise<{ agents: Array<{ id: string; name: string; description?: string; class: string }> }> {
+  const res = await fetch(`${getBase()}/v1/agents`);
+  if (!res.ok) throw new Error('Failed to fetch agents');
+  return res.json();
+}
+
+export async function fetchMCPServers(): Promise<{ servers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string> }> }> {
+  const res = await fetch(`${getBase()}/v1/mcp/servers`);
+  if (!res.ok) throw new Error('Failed to fetch MCP servers');
+  return res.json();
+}
+
+export async function addMCPServer(server: { name: string; command: string; args: string[]; env?: Record<string, string> }): Promise<{ success: boolean; servers: any[]; error?: string }> {
+  const res = await fetch(`${getBase()}/v1/mcp/servers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  if (!res.ok) throw new Error('Failed to add MCP server');
+  return res.json();
+}
+
+export async function removeMCPServer(serverName: string): Promise<{ success: boolean; servers: any[]; error?: string }> {
+  const res = await fetch(`${getBase()}/v1/mcp/servers/${encodeURIComponent(serverName)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to remove MCP server');
+  return res.json();
+}
+
+export async function fetchLearningStats(): Promise<any> {
+  const res = await fetch(`${getBase()}/v1/learning/stats`);
+  if (!res.ok) throw new Error('Failed to fetch learning stats');
+  return res.json();
+}
+
+export async function fetchLearningPolicy(): Promise<any> {
+  const res = await fetch(`${getBase()}/v1/learning/policy`);
+  if (!res.ok) throw new Error('Failed to fetch learning policy');
+  return res.json();
+}
+
+export async function triggerLearning(): Promise<{ success: boolean; result?: any; error?: string }> {
+  const res = await fetch(`${getBase()}/v1/learning/trigger`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error('Failed to trigger learning');
+  return res.json();
+}
+
 export async function fetchTraces(limit: number = 50): Promise<unknown> {
   if (isTauri()) {
     try {
@@ -851,7 +907,7 @@ export async function fetchLearningLog(agentId: string): Promise<LearningLogEntr
   return data.learning_log || [];
 }
 
-export async function triggerLearning(agentId: string): Promise<void> {
+export async function triggerAgentLearning(agentId: string): Promise<void> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning/run`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }

@@ -165,6 +165,7 @@ export function InputArea() {
     let isErrorResponse = false;
     let usage: TokenUsage | undefined;
     let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
+    let telemetryFromChunk: any = undefined;
     const toolCalls: ToolCallInfo[] = [];
     let lastFlush = 0;
     let ttftMs: number | undefined;
@@ -241,6 +242,10 @@ export function InputArea() {
             const delta = data.choices?.[0]?.delta;
             if (data.usage) usage = data.usage;
             if (data.complexity) complexity = data.complexity;
+            // Extract telemetry from finish chunk
+            if (data.telemetry && !telemetryFromChunk) {
+              telemetryFromChunk = data.telemetry;
+            }
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
               accumulatedContent += delta.content;
@@ -285,8 +290,8 @@ export function InputArea() {
       const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/', 'MiniMax-', 'chatgpt-'];
       const engineLabel = _CLOUD_PREFIXES.some(p => selectedModel.startsWith(p)) ? 'cloud' : 'ollama';
       const telemetry: MessageTelemetry = {
-        engine: engineLabel,
-        model_id: selectedModel,
+        engine: telemetryFromChunk?.engine || engineLabel,
+        model_id: telemetryFromChunk?.model_id || selectedModel,
         total_ms: totalMs,
         ttft_ms: ttftMs,
         tokens_per_sec: usage?.completion_tokens
@@ -295,6 +300,8 @@ export function InputArea() {
         complexity_score: complexity?.score,
         complexity_tier: complexity?.tier,
         suggested_max_tokens: complexity?.suggested_max_tokens,
+        energy_joules: telemetryFromChunk?.energy_joules,
+        cost_usd: telemetryFromChunk?.cost_usd,
       };
       // Check if the response has digest audio available
       let audioMeta: { url: string } | undefined;

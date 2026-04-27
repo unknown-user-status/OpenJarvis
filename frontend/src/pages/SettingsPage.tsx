@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
 import { checkHealth, fetchSpeechHealth, getMemoryStats, getBudgetStatus, setBudgetLimits } from '../lib/api';
+import { MCPPanel } from '../components/Settings/MCPPanel';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -385,6 +386,9 @@ export function SettingsPage() {
               <ApiKeyInput storageKey="openjarvis-search-key" placeholder="API key..." />
             </SettingRow>
           </Section>
+
+          {/* MCP Servers */}
+          <MCPPanel />
 
           {/* Memory */}
           <Section title="Memory">

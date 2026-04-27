@@ -20,6 +20,9 @@ export function XRayFooter({ usage, telemetry }: Props) {
   if (telemetry?.model_id) parts.push(telemetry.model_id);
   if (telemetry?.complexity_tier) parts.push(telemetry.complexity_tier);
   if (telemetry?.total_ms) parts.push(formatMs(telemetry.total_ms));
+  if (telemetry?.energy_joules && telemetry.energy_joules > 0) {
+    parts.push(`${(telemetry.energy_joules * 1000).toFixed(0)}mJ`);
+  }
   if (usage && (usage.prompt_tokens || usage.completion_tokens)) {
     parts.push(`${usage.prompt_tokens} input tokens`);
     parts.push(`${usage.completion_tokens} output tokens`);
@@ -62,6 +65,12 @@ export function XRayFooter({ usage, telemetry }: Props) {
   }
   if (telemetry?.tokens_per_sec) {
     rows.push({ label: 'Speed', value: `${Math.round(telemetry.tokens_per_sec)} tok/s` });
+  }
+  if (telemetry?.energy_joules && telemetry.energy_joules > 0) {
+    rows.push({ label: 'Energy', value: `${(telemetry.energy_joules * 1000).toFixed(1)} mJ` });
+  }
+  if (telemetry?.cost_usd && telemetry.cost_usd > 0) {
+    rows.push({ label: 'Cost', value: `$${telemetry.cost_usd.toFixed(6)}` });
   }
   if (telemetry?.ttft_ms != null || telemetry?.total_ms != null) {
     const latencyParts: string[] = [];

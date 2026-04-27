@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
+import { AgentSelector } from '../Chat/AgentSelector';
 import {
   MessageSquare,
   Plus,
@@ -172,6 +173,9 @@ export function Sidebar() {
               </kbd>
             )}
           </button>
+
+          {/* Agent Selector */}
+          <AgentSelector />
 
           {/* Search */}
           <div className="px-3 mb-2">

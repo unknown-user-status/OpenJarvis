@@ -120,6 +120,7 @@ interface AppState {
   models: ModelInfo[];
   modelsLoading: boolean;
   selectedModel: string;
+  selectedAgent: string | null;
   serverInfo: ServerInfo | null;
   savings: SavingsData | null;
 
@@ -192,6 +193,7 @@ interface AppState {
   // Actions: agents
   setManagedAgents: (agents: ManagedAgent[]) => void;
   setManagedAgentsLoading: (loading: boolean) => void;
+  setSelectedAgent: (agent: string | null) => void;
   setSelectedAgentId: (id: string | null) => void;
 
   // Agent events (live stream)
@@ -232,6 +234,7 @@ export const useAppStore = create<AppState>((set, get) => {
     models: [],
     modelsLoading: true,
     selectedModel: '',
+    selectedAgent: null,
     serverInfo: null,
     savings: null,
 
@@ -414,6 +417,7 @@ export const useAppStore = create<AppState>((set, get) => {
     setModels: (models: ModelInfo[]) => set({ models }),
     setModelsLoading: (loading: boolean) => set({ modelsLoading: loading }),
     setSelectedModel: (model: string) => set({ selectedModel: model }),
+    setSelectedAgent: (agent: string | null) => set({ selectedAgent: agent }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),
     setSavings: (data: SavingsData | null) => set({ savings: data }),
 

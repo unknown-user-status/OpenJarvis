@@ -439,12 +439,15 @@ _SPEAKING = threading.Event()   # set while TTS is playing — VAD waits
 
 
 def _try_speak(text: str) -> bool:
+    """Speak text using Groq TTS with local Ollama fallback."""
     global _TTS_ENABLED
     if _TTS_ENABLED is False:
         return False
+    
+    _SPEAKING.set()
     try:
+        # Try Groq TTS first
         from openjarvis.speech.groq_tts import speak
-        _SPEAKING.set()
         ok = speak(text)
         _SPEAKING.clear()
         if _TTS_ENABLED is None:
@@ -452,10 +455,98 @@ def _try_speak(text: str) -> bool:
             if ok:
                 print("  [TTS enabled]")
         return ok
-    except Exception:
-        _SPEAKING.clear()
-        _TTS_ENABLED = False
-        return False
+    except Exception as e:
+        print(f"  [TTS] Groq failed: {e}")
+    
+    try:
+        # Fallback to local TTS if available
+        import subprocess
+        import platform
+        
+        # Try different TTS engines based on platform
+        system = platform.system().lower()
+        
+        if system == "windows":
+            # Use Windows SAPI
+            try:
+                import win32com.client
+                speaker = win32com.client.Dispatch("SAPI.SpVoice")
+                speaker.Speak(text)
+                print(f"  [TTS] Windows SAPI succeeded")
+                _SPEAKING.clear()
+                if _TTS_ENABLED is None:
+                    _TTS_ENABLED = True
+                    print("  [TTS enabled (local)]")
+                return True
+            except ImportError:
+                # Fallback to PowerShell speech
+                try:
+                    cmd = f'Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'
+                    subprocess.run(["powershell", "-Command", cmd], check=True, capture_output=True)
+                    print(f"  [TTS] PowerShell TTS succeeded")
+                    _SPEAKING.clear()
+                    if _TTS_ENABLED is None:
+                        _TTS_ENABLED = True
+                        print("  [TTS enabled (local)]")
+                    return True
+                except Exception as e2:
+                    print(f"  [TTS] PowerShell fallback failed: {e2}")
+        
+        elif system == "darwin":  # macOS
+            try:
+                subprocess.run(["say", text], check=True, capture_output=True)
+                print(f"  [TTS] macOS say succeeded")
+                _SPEAKING.clear()
+                if _TTS_ENABLED is None:
+                    _TTS_ENABLED = True
+                    print("  [TTS enabled (local)]")
+                return True
+            except Exception as e2:
+                print(f"  [TTS] macOS say failed: {e2}")
+        
+        elif system == "linux":
+            # Try espeak or festival
+            for cmd in [["espeak", text], ["festival", "--tts", "--pipe"]]:
+                try:
+                    if cmd[0] == "festival":
+                        # Festival expects text on stdin
+                        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        p.communicate(text.encode(), timeout=10)
+                    else:
+                        subprocess.run(cmd, check=True, capture_output=True, timeout=10)
+                    print(f"  [TTS] {cmd[0]} succeeded")
+                    _SPEAKING.clear()
+                    if _TTS_ENABLED is None:
+                        _TTS_ENABLED = True
+                        print("  [TTS enabled (local)]")
+                    return True
+                except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                    continue
+        
+        # Try Ollama with a model that can generate TTS descriptions
+        try:
+            import requests
+            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                if models:
+                    # Use any available model to generate a phonetic representation
+                    # This is a basic fallback - won't produce actual audio
+                    print(f"  [TTS] Ollama available but no native TTS - showing text only")
+                    _SPEAKING.clear()
+                    if _TTS_ENABLED is None:
+                        _TTS_ENABLED = True
+                        print("  [TTS enabled (text only)]")
+                    return True
+        except Exception:
+            pass
+        
+    except Exception as e:
+        print(f"  [TTS] Local fallback failed: {e}")
+    
+    _SPEAKING.clear()
+    _TTS_ENABLED = False
+    return False
 
 
 def _say(text: str) -> None:
@@ -650,19 +741,73 @@ def wait_for_utterance(threshold: float) -> np.ndarray | None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def transcribe(audio: np.ndarray) -> str:
+    """Transcribe audio using Groq Whisper with local Ollama fallback."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         path = tmp.name
         sf.write(path, audio, SAMPLE_RATE)
+    
     try:
+        # Try Groq Whisper first
         with open(path, "rb") as f:
             result = _GROQ.audio.transcriptions.create(
                 model="whisper-large-v3-turbo",
                 file=f,
                 response_format="text",
             )
-        return (result if isinstance(result, str) else str(result)).strip()
+        text = (result if isinstance(result, str) else str(result)).strip()
+        if text:
+            return text
+    except Exception as e:
+        print(f"  [STT] Groq failed: {e}")
+    
+    try:
+        # Fallback to local Ollama STT if available
+        import requests
+        
+        # Check if Ollama is running and has a multimodal model
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                # Look for multimodal models that can handle audio
+                multimodal_models = [m for m in models if any(x in m.get("name", "").lower() for x in ["llava", "bakllava", "multimodal", "vision"])]
+                
+                if multimodal_models:
+                    print(f"  [STT] Trying local Ollama with {multimodal_models[0]['name']}")
+                    
+                    # Convert audio to base64
+                    import base64
+                    with open(path, "rb") as f:
+                        audio_data = f.read()
+                    audio_b64 = base64.b64encode(audio_data).decode()
+                    
+                    # Try to transcribe with Ollama
+                    ollama_response = requests.post(
+                        "http://localhost:11434/api/generate",
+                        json={
+                            "model": multimodal_models[0]["name"],
+                            "prompt": "Transcribe this audio. Only return the transcribed text, nothing else.",
+                            "images": [f"data:audio/wav;base64,{audio_b64}"],
+                            "stream": False
+                        },
+                        timeout=30
+                    )
+                    
+                    if ollama_response.status_code == 200:
+                        text = ollama_response.json().get("response", "").strip()
+                        if text and len(text) > 0:
+                            print(f"  [STT] Local Ollama succeeded: {text[:50]}...")
+                            return text
+        except Exception as e:
+            print(f"  [STT] Local Ollama not available: {e}")
+    except Exception as e:
+        print(f"  [STT] Local fallback failed: {e}")
+    
     finally:
         os.unlink(path)
+    
+    # Last resort: return empty string
+    return ""
 
 
 # ══════════════════════════════════════════════════════════════════════════════

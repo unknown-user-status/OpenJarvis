@@ -3481,7 +3481,7 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
   async function handleTrigger() {
     setTriggering(true);
     try {
-      await triggerLearning(agentId);
+      await triggerLearning();
       // Refresh after a short delay
       setTimeout(() => fetchLearningLog(agentId).then(setLogs).catch(() => {}), 1000);
     } catch {

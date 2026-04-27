@@ -743,6 +743,172 @@ async def reset_telemetry():
     return {"status": "ok", "records_cleared": count}
 
 
+@router.get("/v1/telemetry/stats")
+async def get_telemetry_stats(request: Request):
+    """Return aggregate telemetry stats for the current session."""
+    try:
+        from openjarvis.telemetry.aggregator import TelemetryAggregator
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+        db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+        agg = TelemetryAggregator(db_path)
+        stats = agg.aggregate()
+        # Return as plain dict
+        return {
+            "total_requests": stats.total_requests,
+            "total_tokens": stats.total_tokens,
+            "total_cost_usd": round(stats.total_cost, 6),
+            "total_energy_joules": round(stats.total_energy_joules, 4),
+            "avg_latency_ms": round(stats.avg_latency_ms, 1) if hasattr(stats, 'avg_latency_ms') else None,
+            "avg_tokens_per_sec": round(stats.avg_tokens_per_sec, 1) if hasattr(stats, 'avg_tokens_per_sec') else None,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@router.get("/v1/agents")
+async def list_agents(request: Request):
+    """List all available agents."""
+    try:
+        from openjarvis.core.registry import AgentRegistry
+        
+        agents = []
+        for key, agent_class in AgentRegistry.items():
+            # Get basic info about the agent
+            agent_info = {
+                "id": key,
+                "name": key.replace("_", " ").title(),
+                "class": agent_class.__name__ if hasattr(agent_class, '__name__') else str(agent_class),
+            }
+            
+            # Try to get description from docstring
+            if hasattr(agent_class, '__doc__') and agent_class.__doc__:
+                doc = agent_class.__doc__.strip()
+                if doc and not doc.startswith('"""'):
+                    agent_info["description"] = doc.split('\n')[0] if '\n' in doc else doc
+            
+            agents.append(agent_info)
+        
+        # Sort by name
+        agents.sort(key=lambda x: x["name"])
+        
+        return {"agents": agents}
+    except Exception as exc:
+        return {"error": str(exc), "agents": []}
+
+
+@router.get("/v1/mcp/servers")
+async def list_mcp_servers(request: Request):
+    """List all configured MCP servers."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, AppConfig
+        import json
+        
+        # Load current config
+        config_path = DEFAULT_CONFIG_DIR / "config.toml"
+        if not config_path.exists():
+            return {"servers": []}
+        
+        config = AppConfig.from_file(config_path)
+        
+        if not config.tools.mcp.servers:
+            return {"servers": []}
+        
+        try:
+            servers = json.loads(config.tools.mcp.servers)
+        except json.JSONDecodeError:
+            return {"servers": []}
+        
+        return {"servers": servers}
+    except Exception as exc:
+        return {"error": str(exc), "servers": []}
+
+
+@router.post("/v1/mcp/servers")
+async def add_mcp_server(request: Request):
+    """Add a new MCP server configuration."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, AppConfig
+        import json
+        
+        server_config = await request.json()
+        
+        # Validate required fields
+        required_fields = ["name", "command", "args"]
+        for field in required_fields:
+            if field not in server_config:
+                return {"error": f"Missing required field: {field}"}
+        
+        # Load current config
+        config_path = DEFAULT_CONFIG_DIR / "config.toml"
+        config = AppConfig.from_file(config_path) if config_path.exists() else AppConfig()
+        
+        # Parse existing servers
+        servers = []
+        if config.tools.mcp.servers:
+            try:
+                servers = json.loads(config.tools.mcp.servers)
+            except json.JSONDecodeError:
+                servers = []
+        
+        # Check for duplicate names
+        if any(s.get("name") == server_config["name"] for s in servers):
+            return {"error": f"Server with name '{server_config['name']}' already exists"}
+        
+        # Add new server
+        servers.append(server_config)
+        
+        # Update config
+        config.tools.mcp.servers = json.dumps(servers)
+        
+        # Save config
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config.to_file(config_path)
+        
+        return {"success": True, "servers": servers}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@router.delete("/v1/mcp/servers/{server_name}")
+async def remove_mcp_server(request: Request, server_name: str):
+    """Remove an MCP server configuration."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, AppConfig
+        import json
+        
+        # Load current config
+        config_path = DEFAULT_CONFIG_DIR / "config.toml"
+        if not config_path.exists():
+            return {"error": "No configuration found"}
+        
+        config = AppConfig.from_file(config_path)
+        
+        if not config.tools.mcp.servers:
+            return {"error": "No MCP servers configured"}
+        
+        try:
+            servers = json.loads(config.tools.mcp.servers)
+        except json.JSONDecodeError:
+            return {"error": "Invalid MCP server configuration"}
+        
+        # Remove server
+        original_count = len(servers)
+        servers = [s for s in servers if s.get("name") != server_name]
+        
+        if len(servers) == original_count:
+            return {"error": f"Server '{server_name}' not found"}
+        
+        # Update config
+        config.tools.mcp.servers = json.dumps(servers)
+        
+        # Save config
+        config.to_file(config_path)
+        
+        return {"success": True, "servers": servers}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @router.get("/v1/info")
 async def server_info(request: Request):
     """Return server configuration: model, agent, engine."""
@@ -917,6 +1083,59 @@ async def stream_logs(request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/v1/intelligence/hardware")
+async def get_hardware_info(request: Request):
+    """Return current hardware info: RAM, GPU VRAM, recommended model tier."""
+    import platform
+    import psutil
+    
+    info = {
+        "platform": platform.system(),
+        "cpu": platform.processor() or platform.machine(),
+        "cpu_cores": psutil.cpu_count(logical=False),
+        "ram_gb": round(psutil.virtual_memory().total / (1024**3), 1),
+        "ram_available_gb": round(psutil.virtual_memory().available / (1024**3), 1),
+    }
+    
+    # Try to detect GPU VRAM
+    vram_gb = 0.0
+    gpu_name = ""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split(",")
+            gpu_name = parts[0].strip()
+            vram_gb = round(int(parts[1].strip()) / 1024, 1)
+    except Exception:
+        pass
+    
+    info["gpu_name"] = gpu_name
+    info["vram_gb"] = vram_gb
+
+    # Recommend model tier based on available RAM + VRAM
+    total_memory = max(info["ram_gb"], vram_gb) if vram_gb > 0 else info["ram_gb"]
+    if total_memory >= 32:
+        tier = "large"
+        recommended = "qwen3:14b or qwen3:32b"
+    elif total_memory >= 16:
+        tier = "medium"
+        recommended = "qwen3:8b"
+    elif total_memory >= 8:
+        tier = "small"
+        recommended = "qwen3:4b"
+    else:
+        tier = "tiny"
+        recommended = "qwen3:1.7b or qwen3:0.6b"
+
+    info["recommended_tier"] = tier
+    info["recommended_model"] = recommended
+    return info
 
 
 __all__ = ["router"]

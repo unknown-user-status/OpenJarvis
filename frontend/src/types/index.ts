@@ -59,6 +59,8 @@ export interface MessageTelemetry {
   complexity_score?: number;
   complexity_tier?: string;
   suggested_max_tokens?: number;
+  energy_joules?: number;
+  cost_usd?: number;
 }
 
 export interface ChatMessage {
