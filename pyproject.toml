@@ -54,6 +54,7 @@ dev = [
 ]
 inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
+# Note: inference-vllm is incompatible with inference-openvino due to protobuf version conflicts
 inference-openvino = [
     "openvino>=2024.0.0",
     "openvino-dev[onnx,tensorflow2,pytorch]",

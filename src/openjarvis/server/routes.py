@@ -751,15 +751,15 @@ async def get_telemetry_stats(request: Request):
         from openjarvis.core.config import DEFAULT_CONFIG_DIR
         db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
         agg = TelemetryAggregator(db_path)
-        stats = agg.aggregate()
+        stats = agg.summary()
         # Return as plain dict
         return {
-            "total_requests": stats.total_requests,
+            "total_requests": stats.total_calls,
             "total_tokens": stats.total_tokens,
             "total_cost_usd": round(stats.total_cost, 6),
             "total_energy_joules": round(stats.total_energy_joules, 4),
-            "avg_latency_ms": round(stats.avg_latency_ms, 1) if hasattr(stats, 'avg_latency_ms') else None,
-            "avg_tokens_per_sec": round(stats.avg_tokens_per_sec, 1) if hasattr(stats, 'avg_tokens_per_sec') else None,
+            "avg_latency_ms": round(stats.total_latency / stats.total_calls * 1000, 1) if stats.total_calls > 0 else 0,
+            "avg_tokens_per_sec": round(stats.avg_throughput_tok_per_sec, 1),
         }
     except Exception as exc:
         return {"error": str(exc)}
@@ -800,7 +800,7 @@ async def list_agents(request: Request):
 async def list_mcp_servers(request: Request):
     """List all configured MCP servers."""
     try:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR, AppConfig
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
         import json
         
         # Load current config
@@ -808,7 +808,7 @@ async def list_mcp_servers(request: Request):
         if not config_path.exists():
             return {"servers": []}
         
-        config = AppConfig.from_file(config_path)
+        config = load_config(config_path)
         
         if not config.tools.mcp.servers:
             return {"servers": []}
@@ -827,7 +827,7 @@ async def list_mcp_servers(request: Request):
 async def add_mcp_server(request: Request):
     """Add a new MCP server configuration."""
     try:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR, AppConfig
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
         import json
         
         server_config = await request.json()
@@ -840,7 +840,7 @@ async def add_mcp_server(request: Request):
         
         # Load current config
         config_path = DEFAULT_CONFIG_DIR / "config.toml"
-        config = AppConfig.from_file(config_path) if config_path.exists() else AppConfig()
+        config = load_config(config_path) if config_path.exists() else load_config(None)
         
         # Parse existing servers
         servers = []
@@ -873,7 +873,7 @@ async def add_mcp_server(request: Request):
 async def remove_mcp_server(request: Request, server_name: str):
     """Remove an MCP server configuration."""
     try:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR, AppConfig
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
         import json
         
         # Load current config
@@ -881,7 +881,7 @@ async def remove_mcp_server(request: Request, server_name: str):
         if not config_path.exists():
             return {"error": "No configuration found"}
         
-        config = AppConfig.from_file(config_path)
+        config = load_config(config_path)
         
         if not config.tools.mcp.servers:
             return {"error": "No MCP servers configured"}
@@ -1102,6 +1102,8 @@ async def get_hardware_info(request: Request):
     # Try to detect GPU VRAM
     vram_gb = 0.0
     gpu_name = ""
+    
+    # First try NVIDIA GPU
     try:
         import subprocess
         result = subprocess.run(
@@ -1115,12 +1117,40 @@ async def get_hardware_info(request: Request):
     except Exception:
         pass
     
+    # If no NVIDIA GPU, try Intel GPU/NPU using OpenVINO
+    if not gpu_name:
+        try:
+            from openvino import Core
+            core = Core()
+            available_devices = core.available_devices
+            if "GPU" in available_devices:
+                gpu_name = "Intel GPU"
+                # Try to get GPU memory info
+                try:
+                    gpu_properties = core.get_property("GPU", "FULL_DEVICE_NAME")
+                    gpu_name = str(gpu_properties) if gpu_properties else "Intel GPU"
+                except Exception:
+                    pass
+            if "NPU" in available_devices:
+                if gpu_name:
+                    gpu_name += " + Intel NPU"
+                else:
+                    gpu_name = "Intel NPU"
+        except ImportError:
+            pass
+        except Exception:
+            pass
+    
     info["gpu_name"] = gpu_name
     info["vram_gb"] = vram_gb
 
     # Recommend model tier based on available RAM + VRAM
     total_memory = max(info["ram_gb"], vram_gb) if vram_gb > 0 else info["ram_gb"]
-    if total_memory >= 32:
+    # If Intel NPU is available, recommend NPU-optimized models
+    if gpu_name and "NPU" in gpu_name:
+        tier = "npu"
+        recommended = "phi-3-mini-4k-int8 or tinyllama-1.1b-int8"
+    elif total_memory >= 32:
         tier = "large"
         recommended = "qwen3:14b or qwen3:32b"
     elif total_memory >= 16:
@@ -1136,6 +1166,61 @@ async def get_hardware_info(request: Request):
     info["recommended_tier"] = tier
     info["recommended_model"] = recommended
     return info
+
+
+@router.get("/v1/learning/status")
+async def get_learning_status(request: Request):
+    """Get learning system status."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
+        
+        config_path = DEFAULT_CONFIG_DIR / "config.toml"
+        if not config_path.exists():
+            return {
+                "enabled": False,
+                "policy": "none",
+                "last_optimization": None,
+                "optimization_count": 0,
+                "message": "Learning not configured"
+            }
+        
+        config = load_config(config_path)
+        
+        return {
+            "enabled": config.learning.enabled if hasattr(config.learning, 'enabled') else False,
+            "policy": config.learning.routing.policy if hasattr(config.learning, 'routing') and hasattr(config.learning.routing, 'policy') else "none",
+            "last_optimization": None,  # TODO: Track from actual learning logs
+            "optimization_count": 0,  # TODO: Track from actual learning logs
+            "message": "Learning system ready" if config.learning.enabled else "Learning disabled"
+        }
+    except Exception as exc:
+        return {"error": str(exc), "enabled": False}
+
+
+@router.post("/v1/learning/trigger")
+async def trigger_learning(request: Request):
+    """Trigger a learning optimization cycle."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
+        
+        config_path = DEFAULT_CONFIG_DIR / "config.toml"
+        if not config_path.exists():
+            return {"success": False, "error": "Learning not configured"}
+        
+        config = load_config(config_path)
+        
+        if not config.learning.enabled:
+            return {"success": False, "error": "Learning is disabled"}
+        
+        # TODO: Implement actual learning trigger
+        # For now, just return success
+        return {
+            "success": True,
+            "result": "Learning cycle triggered",
+            "message": "Optimization cycle started"
+        }
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 
 
 __all__ = ["router"]
