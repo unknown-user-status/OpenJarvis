@@ -31,9 +31,18 @@ export function ChatArea() {
   const [ttsOn, setTtsOn] = useState(() => {
     try { return localStorage.getItem(TTS_STORAGE_KEY) !== 'false'; } catch { return true; }
   });
+  const [ttsAvailable, setTtsAvailable] = useState<boolean | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevStreamingRef = useRef(false);
   const lastSpokenIdRef = useRef<string>('');
+
+  // Check if Jarvis TTS backend is available on mount
+  useEffect(() => {
+    fetch(`${getBase()}/api/jarvis/health`)
+      .then((r) => r.json())
+      .then((d) => setTtsAvailable(!!d.tts_available && !!d.groq_key_set))
+      .catch(() => setTtsAvailable(false));
+  }, []);
 
   const toggleTts = useCallback(() => {
     setTtsOn((v) => {
@@ -56,16 +65,25 @@ export function ChatArea() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: snippet, voice: TTS_VOICE }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.warn(`[TTS] Request failed: HTTP ${res.status} ${res.statusText}`);
+        return;
+      }
       // Endpoint returns raw audio/wav bytes
       const blob = await res.blob();
+      if (!blob.size) {
+        console.warn('[TTS] Received empty audio blob');
+        return;
+      }
       const url = URL.createObjectURL(blob);
       if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current.src); }
       const audio = new Audio(url);
       audioRef.current = audio;
       audio.onended = () => URL.revokeObjectURL(url);
-      audio.play().catch(() => {});
-    } catch { /* TTS unavailable — silent fail */ }
+      audio.play().catch((err) => console.warn('[TTS] Playback failed:', err));
+    } catch (err) {
+      console.warn('[TTS] Error:', err);
+    }
   }, []);
 
   // Auto-speak when streaming finishes
@@ -74,7 +92,7 @@ export function ChatArea() {
     const isStreaming = streamState.isStreaming;
     prevStreamingRef.current = isStreaming;
 
-    if (wasStreaming && !isStreaming && ttsOn) {
+    if (wasStreaming && !isStreaming && ttsOn && ttsAvailable) {
       // Find the last assistant message
       const last = [...messages].reverse().find((m) => m.role === 'assistant');
       if (last && last.id !== lastSpokenIdRef.current && last.content) {
@@ -82,7 +100,7 @@ export function ChatArea() {
         speakText(last.content);
       }
     }
-  }, [streamState.isStreaming, messages, ttsOn, speakText]);
+  }, [streamState.isStreaming, messages, ttsOn, ttsAvailable, speakText]);
 
   // Check if any data sources are connected
   const [hasConnectedSources, setHasConnectedSources] = useState<boolean | null>(null);
@@ -116,12 +134,22 @@ export function ChatArea() {
       <div className="flex items-center justify-end gap-1 px-3 py-1.5 shrink-0">
         {/* TTS toggle */}
         <button
-          onClick={toggleTts}
+          onClick={ttsAvailable === false ? undefined : toggleTts}
           className="p-1.5 rounded-md transition-colors cursor-pointer"
-          style={{ color: ttsOn ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }}
-          title={ttsOn ? 'Voice response ON — click to mute' : 'Voice response OFF — click to enable'}
+          style={{
+            color: ttsAvailable === false
+              ? 'var(--color-text-tertiary)'
+              : ttsOn ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+            opacity: ttsAvailable === false ? 0.4 : 1,
+            cursor: ttsAvailable === false ? 'not-allowed' : 'pointer',
+          }}
+          title={
+            ttsAvailable === false
+              ? 'Voice unavailable — GROQ_API_KEY not configured'
+              : ttsOn ? 'Voice ON — click to mute' : 'Voice OFF — click to enable'
+          }
         >
-          {ttsOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+          {ttsOn && ttsAvailable !== false ? <Volume2 size={15} /> : <VolumeX size={15} />}
         </button>
         <button
           onClick={toggleSystemPanel}

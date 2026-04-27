@@ -108,8 +108,7 @@ _PLUGIN_TRIGGERS = (
     "remind me", "reminder", "set reminder", "set a reminder",
     "analyze screen", "what's on my screen", "look at screen",
     "screen analysis", "what do you see",
-    "hello", "hi", "hey", "good morning", "good evening",
-    "good afternoon", "goodbye", "bye",
+    "goodbye", "bye",
 )
 
 _CONTROL_KEYWORDS = (
@@ -267,25 +266,32 @@ async def jarvis_chat(request: ChatRequest):
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
 
-    mode = _classify(text)
-    response_text = ""
-    prompt_tokens = 0
-    completion_tokens = 0
-
-    if mode == "plugin":
-        result = _dispatch_plugin(text, api_key)
-        if result:
-            response_text = result
-        else:
-            # plugin didn't match — fall through to LLM
-            mode = "qa"
-
-    if mode == "control":
-        response_text = _run_desktop(text, api_key)
-
-    if not response_text:
+    # Short-circuit greetings before classify/plugin/LLM
+    if _is_greeting(text):
+        response_text = "Hello! How are you? How can I help you today?"
         mode = "qa"
-        response_text, prompt_tokens, completion_tokens = _llm_answer(text, api_key)
+        prompt_tokens = 0
+        completion_tokens = 0
+    else:
+        mode = _classify(text)
+        response_text = ""
+        prompt_tokens = 0
+        completion_tokens = 0
+
+        if mode == "plugin":
+            result = _dispatch_plugin(text, api_key)
+            if result:
+                response_text = result
+            else:
+                # plugin didn't match — fall through to LLM
+                mode = "qa"
+
+        if mode == "control":
+            response_text = _run_desktop(text, api_key)
+
+        if not response_text:
+            mode = "qa"
+            response_text, prompt_tokens, completion_tokens = _llm_answer(text, api_key)
 
     # Optional TTS
     audio_b64 = None
@@ -294,7 +300,7 @@ async def jarvis_chat(request: ChatRequest):
             wav_bytes = _synthesize_tts(response_text, api_key, voice=request.voice)
             audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
         except Exception as exc:
-            logger.debug("TTS synthesis skipped: %s", exc)
+            logger.warning("TTS synthesis failed: %s", exc)
 
     return ChatResponse(
         response=response_text,
