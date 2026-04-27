@@ -229,7 +229,10 @@ def _get_jarvis_reply(text: str) -> str:
             from openai import OpenAI
             client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
             system_prompt = (
-                "You are OpenJarvis, a helpful AI assistant. "
+                "You are Jarvis, a friendly and helpful personal AI assistant. "
+                "When greeted (e.g. 'hi', 'hello', 'hey'), always respond warmly and naturally, "
+                "for example: 'Hello! How are you? How can I help you today?' — never mention "
+                "project details or code unless the user asks. "
                 "Give concise, accurate answers in 1-3 sentences unless more detail is needed."
             )
             # Try to load memory context

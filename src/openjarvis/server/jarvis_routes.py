@@ -139,14 +139,18 @@ def _dispatch_plugin(command: str, api_key: str) -> Optional[str]:
         return None
 
 
-def _llm_answer(question: str, api_key: str) -> str:
+def _llm_answer(question: str, api_key: str) -> tuple[str, int, int]:
+    """Return (response_text, prompt_tokens, completion_tokens)."""
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 
         # Build memory-aware system prompt
         system_prompt = (
-            "You are OpenJarvis, an advanced AI assistant. "
+            "You are Jarvis, a friendly and helpful personal AI assistant. "
+            "When greeted (e.g. 'hi', 'hello', 'hey'), always respond warmly and naturally, "
+            "for example: 'Hello! How are you? How can I help you today?' — never mention "
+            "project details or code unless the user asks. "
             "Give concise, helpful answers. Be accurate. Keep responses under 3 sentences "
             "unless the question genuinely needs more detail."
         )
@@ -168,7 +172,10 @@ def _llm_answer(question: str, api_key: str) -> str:
             max_tokens=512,
             temperature=0.7,
         )
-        return resp.choices[0].message.content or ""
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        return resp.choices[0].message.content or "", prompt_tokens, completion_tokens
     except Exception as exc:
         logger.error("LLM error: %s", exc)
         raise
@@ -210,6 +217,8 @@ class ChatResponse(BaseModel):
     response: str
     mode: str                # 'plugin' | 'control' | 'qa'
     audio_b64: Optional[str] = None   # WAV base64 if tts=True
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class TTSRequest(BaseModel):
@@ -248,6 +257,8 @@ async def jarvis_chat(request: ChatRequest):
 
     mode = _classify(text)
     response_text = ""
+    prompt_tokens = 0
+    completion_tokens = 0
 
     if mode == "plugin":
         result = _dispatch_plugin(text, api_key)
@@ -262,7 +273,7 @@ async def jarvis_chat(request: ChatRequest):
 
     if not response_text:
         mode = "qa"
-        response_text = _llm_answer(text, api_key)
+        response_text, prompt_tokens, completion_tokens = _llm_answer(text, api_key)
 
     # Optional TTS
     audio_b64 = None
@@ -273,7 +284,13 @@ async def jarvis_chat(request: ChatRequest):
         except Exception as exc:
             logger.debug("TTS synthesis skipped: %s", exc)
 
-    return ChatResponse(response=response_text, mode=mode, audio_b64=audio_b64)
+    return ChatResponse(
+        response=response_text,
+        mode=mode,
+        audio_b64=audio_b64,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
 
 
 @jarvis_router.post("/voice")
