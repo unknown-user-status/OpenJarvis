@@ -1013,3 +1013,41 @@ export async function runVoiceCommand(audio: Blob): Promise<VoiceCommandResult> 
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// /v1/logs — SSE stream of backend log records
+// ---------------------------------------------------------------------------
+
+export interface BackendLogEntry {
+  ts: number;
+  level: 'debug' | 'info' | 'warning' | 'error' | string;
+  name: string;
+  message: string;
+}
+
+/**
+ * Subscribe to the backend log SSE stream.
+ * Returns an unsubscribe function. Call it to close the EventSource.
+ */
+export function subscribeBackendLogs(
+  onEntry: (entry: BackendLogEntry) => void,
+  onError?: () => void,
+): () => void {
+  const url = `${getBase()}/v1/logs`;
+  const es = new EventSource(url);
+
+  es.onmessage = (event) => {
+    try {
+      const entry = JSON.parse(event.data) as BackendLogEntry;
+      onEntry(entry);
+    } catch {
+      // ignore malformed
+    }
+  };
+
+  es.onerror = () => {
+    onError?.();
+  };
+
+  return () => es.close();
+}

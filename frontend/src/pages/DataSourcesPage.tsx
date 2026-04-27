@@ -633,6 +633,48 @@ function DataSourcesSection() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Onboarding guide — shown when nothing is connected yet */}
+      {connected.length === 0 && (
+        <div
+          className="p-5 rounded-xl"
+          style={{
+            background: 'color-mix(in srgb, var(--color-accent) 6%, var(--color-bg-secondary))',
+            border: '1px dashed color-mix(in srgb, var(--color-accent) 40%, transparent)',
+          }}
+        >
+          <div className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
+            Connect your first data source
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Once connected, Jarvis can search across your emails, notes, calendar, files, and messages to give you personalized, context-aware answers. Click "+ Add" on any source below to see setup instructions.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'upload', label: 'Upload / Paste', hint: 'Quickest — no setup needed' },
+              { id: 'gmail_imap', label: 'Gmail', hint: 'Requires App Password' },
+              { id: 'notion', label: 'Notion', hint: 'Integration token needed' },
+              { id: 'obsidian', label: 'Obsidian', hint: 'Paste vault path' },
+              { id: 'slack', label: 'Slack', hint: 'Bot token needed' },
+              { id: 'gdrive', label: 'Google Drive', hint: 'OAuth credentials needed' },
+            ].map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setExpandedId(s.id)}
+                className="flex flex-col items-start px-3 py-2 rounded-lg text-left cursor-pointer transition-opacity hover:opacity-80"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  minWidth: 130,
+                }}
+              >
+                <span className="text-xs font-medium" style={{ color: 'var(--color-accent)' }}>{s.label}</span>
+                <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{s.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Connected sources */}
       {connected.length > 0 && (
         <section>

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Monitor, Play, Square, Loader2, Zap, Terminal, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import { Monitor, Play, Square, Loader2, Zap, Terminal, CheckCircle, XCircle, RefreshCw, PackageSearch, AlertTriangle } from 'lucide-react';
 import { runDesktopGoal, takeScreenshot } from '../lib/api';
 
 interface ActionLogEntry {
@@ -29,6 +29,7 @@ export function DesktopControlPage() {
   const [log, setLog] = useState<ActionLogEntry[]>([]);
   const [summary, setSummary] = useState('');
   const [error, setError] = useState('');
+  const [missingDep, setMissingDep] = useState(false);
   const [screenshot, setScreenshot] = useState<string>('');
   const [screenshotLoading, setScreenshotLoading] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -44,12 +45,20 @@ export function DesktopControlPage() {
     try {
       const b64 = await takeScreenshot();
       setScreenshot(b64);
-    } catch {
-      // silently ignore
+      setMissingDep(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('pyautogui') || msg.includes('503') || msg.includes('not installed')) {
+        setMissingDep(true);
+      }
+      // silently ignore other screenshot errors
     } finally {
       setScreenshotLoading(false);
     }
   }, []);
+
+  // On mount: probe screenshot endpoint to detect missing pyautogui early
+  useEffect(() => { refreshScreenshot(); }, [refreshScreenshot]);
 
   // Refresh screenshot every 3s while running
   useEffect(() => {
@@ -83,6 +92,9 @@ export function DesktopControlPage() {
       await refreshScreenshot();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('pyautogui') || msg.includes('503') || msg.includes('not installed')) {
+        setMissingDep(true);
+      }
       setError(msg);
       setRunState('error');
     }
@@ -109,6 +121,36 @@ export function DesktopControlPage() {
             Tell Jarvis what to do on your machine
           </p>
         </div>
+
+        {/* Dependency warning */}
+        {missingDep && (
+          <div
+            className="mx-4 my-2 p-3 rounded-xl flex items-start gap-2 shrink-0"
+            style={{
+              background: 'color-mix(in srgb, var(--color-error) 10%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--color-error) 30%, transparent)',
+            }}
+          >
+            <PackageSearch size={13} style={{ color: 'var(--color-error)', marginTop: 2, flexShrink: 0 }} />
+            <div>
+              <div className="text-xs font-semibold mb-1" style={{ color: 'var(--color-error)' }}>
+                Missing dependency: pyautogui
+              </div>
+              <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                Desktop Control requires <code>pyautogui</code>. Install it by running one of the following:
+              </div>
+              <code className="block text-[11px] px-2 py-1 rounded mb-1" style={{ background: 'var(--color-bg)', color: 'var(--color-text)' }}>
+                uv sync --extra desktop
+              </code>
+              <code className="block text-[11px] px-2 py-1 rounded" style={{ background: 'var(--color-bg)', color: 'var(--color-text)' }}>
+                pip install pyautogui pillow
+              </code>
+              <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                Then restart the OpenJarvis server.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Goal input */}
         <div className="px-4 py-3 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import queue
+import time
 import uuid
 from typing import Any
 
@@ -766,6 +770,82 @@ async def security_scan():
             for r in results
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# /v1/logs — SSE stream of backend log records
+# ---------------------------------------------------------------------------
+
+class _SSELogHandler(logging.Handler):
+    """Logging handler that fans out records to registered SSE subscribers."""
+
+    def __init__(self):
+        super().__init__()
+        self._queues: list[queue.SimpleQueue] = []
+
+    def subscribe(self) -> queue.SimpleQueue:
+        q: queue.SimpleQueue = queue.SimpleQueue()
+        self._queues.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.SimpleQueue) -> None:
+        try:
+            self._queues.remove(q)
+        except ValueError:
+            pass
+
+    def emit(self, record: logging.LogRecord) -> None:
+        entry = {
+            "ts": int(record.created * 1000),
+            "level": record.levelname.lower(),
+            "name": record.name,
+            "message": self.format(record),
+        }
+        dead: list[queue.SimpleQueue] = []
+        for q in list(self._queues):
+            try:
+                q.put_nowait(entry)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            self.unsubscribe(q)
+
+
+# Singleton handler — attach to root logger once
+_sse_log_handler = _SSELogHandler()
+_sse_log_handler.setLevel(logging.DEBUG)
+_sse_log_handler.setFormatter(logging.Formatter("%(message)s"))
+
+_root_logger = logging.getLogger("openjarvis")
+if not any(isinstance(h, _SSELogHandler) for h in _root_logger.handlers):
+    _root_logger.addHandler(_sse_log_handler)
+
+
+@router.get("/v1/logs")
+async def stream_logs(request: Request):
+    """SSE stream of openjarvis backend log records."""
+    q = _sse_log_handler.subscribe()
+
+    async def _generate():
+        try:
+            # Send a keep-alive ping immediately
+            yield "event: ping\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    entry = q.get_nowait()
+                    yield f"data: {json.dumps(entry)}\n\n"
+                except queue.Empty:
+                    await asyncio.sleep(0.25)
+        finally:
+            _sse_log_handler.unsubscribe(q)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 __all__ = ["router"]
