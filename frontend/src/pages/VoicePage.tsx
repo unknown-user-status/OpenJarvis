@@ -100,103 +100,107 @@ function VoiceModeLauncher() {
   };
 
   return (
-    <div className="rounded-xl p-4 mb-6" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-      <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
-        Standalone Voice Modes
-      </p>
-      <div className="flex gap-3">
-        {/* Voice Mode v5 */}
-        <div className="flex-1 rounded-lg p-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Mic size={14} style={{ color: 'var(--color-accent)' }} />
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>Voice Mode v5</span>
+    <div className="space-y-4">
+      {/* Primary: Deepgram Voice */}
+      <div className="rounded-xl p-6" style={{ background: 'linear-gradient(135deg, var(--color-accent-subtle) 0%, var(--color-bg-secondary) 100%)', border: '2px solid var(--color-accent)' }}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 rounded-lg" style={{ background: 'var(--color-accent)' }}>
+                <Volume2 size={20} style={{ color: 'white' }} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Deepgram Voice</h2>
+                <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Continuous two-way voice conversation</p>
+              </div>
             </div>
+            <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+              Speak naturally — Jarvis listens, thinks, and responds with voice. Full machine control and web research capabilities.
+            </p>
+          </div>
+          <div className={`text-xs px-3 py-1 rounded-full font-medium ${status.deepgram.running ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>
+            {status.deepgram.running ? '● Running' : '○ Stopped'}
+          </div>
+        </div>
+        {status.deepgram.running ? (
+          <button
+            onClick={() => stopMode('deepgram')}
+            disabled={loading === 'deepgram'}
+            className="w-full flex items-center justify-center gap-2 text-sm px-6 py-3 rounded-lg font-medium transition-colors cursor-pointer"
+            style={{
+              background: 'var(--color-error)',
+              color: 'white',
+              opacity: loading === 'deepgram' ? 0.6 : 1,
+            }}
+          >
+            {loading === 'deepgram' ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} />}
+            Stop Deepgram Voice
+          </button>
+        ) : (
+          <button
+            onClick={() => launchMode('deepgram')}
+            disabled={loading === 'deepgram'}
+            className="w-full flex items-center justify-center gap-2 text-sm px-6 py-3 rounded-lg font-medium transition-colors cursor-pointer"
+            style={{
+              background: 'var(--color-accent)',
+              color: 'white',
+              opacity: loading === 'deepgram' ? 0.6 : 1,
+            }}
+          >
+            {loading === 'deepgram' ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+            Launch Deepgram Voice
+          </button>
+        )}
+      </div>
+
+      {/* Secondary: Voice Mode v5 */}
+      <div className="rounded-xl p-4" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg" style={{ background: 'var(--color-bg-tertiary)' }}>
+              <Mic size={16} style={{ color: 'var(--color-text-secondary)' }} />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>Voice Mode v5</h3>
+              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Local VAD-based voice control</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <div className={`text-[10px] px-2 py-0.5 rounded-full ${status.v5.running ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>
               {status.v5.running ? 'Running' : 'Stopped'}
             </div>
+            {status.v5.running ? (
+              <button
+                onClick={() => stopMode('v5')}
+                disabled={loading === 'v5'}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                style={{
+                  background: 'var(--color-error-subtle)',
+                  border: '1px solid var(--color-error)',
+                  color: 'var(--color-error)',
+                  opacity: loading === 'v5' ? 0.6 : 1,
+                }}
+              >
+                {loading === 'v5' ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={() => launchMode('v5')}
+                disabled={loading === 'v5'}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                style={{
+                  background: 'var(--color-bg-tertiary)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-secondary)',
+                  opacity: loading === 'v5' ? 0.6 : 1,
+                }}
+              >
+                {loading === 'v5' ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                Launch
+              </button>
+            )}
           </div>
-          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            Local VAD-based voice control
-          </p>
-          {status.v5.running ? (
-            <button
-              onClick={() => stopMode('v5')}
-              disabled={loading === 'v5'}
-              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
-              style={{
-                background: 'var(--color-error-subtle)',
-                border: '1px solid var(--color-error)',
-                color: 'var(--color-error)',
-                opacity: loading === 'v5' ? 0.6 : 1,
-              }}
-            >
-              {loading === 'v5' ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={() => launchMode('v5')}
-              disabled={loading === 'v5'}
-              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
-              style={{
-                background: 'var(--color-accent-subtle)',
-                border: '1px solid var(--color-accent)',
-                color: 'var(--color-accent)',
-                opacity: loading === 'v5' ? 0.6 : 1,
-              }}
-            >
-              {loading === 'v5' ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-              Launch
-            </button>
-          )}
-        </div>
-
-        {/* Deepgram Voice */}
-        <div className="flex-1 rounded-lg p-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Volume2 size={14} style={{ color: 'var(--color-accent-purple)' }} />
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>Deepgram Voice</span>
-            </div>
-            <div className={`text-[10px] px-2 py-0.5 rounded-full ${status.deepgram.running ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>
-              {status.deepgram.running ? 'Running' : 'Stopped'}
-            </div>
-          </div>
-          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            Continuous two-way voice (Deepgram API)
-          </p>
-          {status.deepgram.running ? (
-            <button
-              onClick={() => stopMode('deepgram')}
-              disabled={loading === 'deepgram'}
-              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
-              style={{
-                background: 'var(--color-error-subtle)',
-                border: '1px solid var(--color-error)',
-                color: 'var(--color-error)',
-                opacity: loading === 'deepgram' ? 0.6 : 1,
-              }}
-            >
-              {loading === 'deepgram' ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={() => launchMode('deepgram')}
-              disabled={loading === 'deepgram'}
-              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
-              style={{
-                background: 'var(--color-accent-subtle)',
-                border: '1px solid var(--color-accent)',
-                color: 'var(--color-accent)',
-                opacity: loading === 'deepgram' ? 0.6 : 1,
-              }}
-            >
-              {loading === 'deepgram' ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-              Launch
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -529,15 +533,29 @@ export function VoicePage() {
           {/* Header */}
           <div className="mb-6 text-center">
             <h1 className="text-3xl font-bold mb-1" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
-              OpenJarvis
+              OpenJarvis Voice
             </h1>
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              Voice — Ask anything, control your machine
+              Continuous two-way voice conversation with full AI capabilities
             </p>
           </div>
 
           {/* Voice Mode Launcher */}
           <VoiceModeLauncher />
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-8">
+            <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />
+            <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>OR</span>
+            <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />
+          </div>
+
+          {/* Legacy Web Voice */}
+          <div className="mb-6">
+            <p className="text-xs font-semibold uppercase tracking-widest mb-4 text-center" style={{ color: 'var(--color-text-tertiary)' }}>
+              Legacy Web Voice (Hold-to-Record)
+            </p>
+          </div>
 
           {/* Orb + waveform */}
           <div className="flex flex-col items-center gap-6 mb-8">
