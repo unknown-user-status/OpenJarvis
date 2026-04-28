@@ -9,11 +9,12 @@
  * • Sends audio → /api/jarvis/voice  (STT → plugin/LLM dispatch)
  * • Optional TTS: plays back Groq Orpheus WAV audio via Web Audio API.
  * • Conversation history in a right-hand panel.
+ * • Voice Mode Launcher: Launch standalone voice modes (v5, Deepgram)
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Mic, MicOff, Volume2, VolumeX, Loader2, Zap, StopCircle, X,
+  Mic, MicOff, Volume2, VolumeX, Loader2, Zap, StopCircle, X, Play, Square,
 } from 'lucide-react';
 import { getBase } from '../lib/api';
 
@@ -31,7 +32,176 @@ interface HistoryItem {
   ts: number;
 }
 
+interface VoiceModeStatus {
+  v5: { running: boolean; pid: number | null };
+  deepgram: { running: boolean; pid: number | null };
+}
+
 const RECORD_SECONDS = 6;
+
+// ---------------------------------------------------------------------------
+// Voice Mode Launcher Component
+// ---------------------------------------------------------------------------
+
+function VoiceModeLauncher() {
+  const [status, setStatus] = useState<VoiceModeStatus>({ v5: { running: false, pid: null }, deepgram: { running: false, pid: null } });
+  const [loading, setLoading] = useState<string | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${getBase()}/api/voice/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setStatus(data.modes || { v5: { running: false, pid: null }, deepgram: { running: false, pid: null } });
+      }
+    } catch {
+      // Ignore errors
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  const launchMode = async (mode: 'v5' | 'deepgram') => {
+    setLoading(mode);
+    try {
+      const res = await fetch(`${getBase()}/api/voice/launch?mode=${mode}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        await fetchStatus();
+      } else {
+        alert(data.error || 'Failed to launch voice mode');
+      }
+    } catch {
+      alert('Failed to launch voice mode');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const stopMode = async (mode: 'v5' | 'deepgram') => {
+    setLoading(mode);
+    try {
+      const res = await fetch(`${getBase()}/api/voice/stop?mode=${mode}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        await fetchStatus();
+      } else {
+        alert(data.error || 'Failed to stop voice mode');
+      }
+    } catch {
+      alert('Failed to stop voice mode');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  return (
+    <div className="rounded-xl p-4 mb-6" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
+      <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
+        Standalone Voice Modes
+      </p>
+      <div className="flex gap-3">
+        {/* Voice Mode v5 */}
+        <div className="flex-1 rounded-lg p-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Mic size={14} style={{ color: 'var(--color-accent)' }} />
+              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>Voice Mode v5</span>
+            </div>
+            <div className={`text-[10px] px-2 py-0.5 rounded-full ${status.v5.running ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>
+              {status.v5.running ? 'Running' : 'Stopped'}
+            </div>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Local VAD-based voice control
+          </p>
+          {status.v5.running ? (
+            <button
+              onClick={() => stopMode('v5')}
+              disabled={loading === 'v5'}
+              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
+              style={{
+                background: 'var(--color-error-subtle)',
+                border: '1px solid var(--color-error)',
+                color: 'var(--color-error)',
+                opacity: loading === 'v5' ? 0.6 : 1,
+              }}
+            >
+              {loading === 'v5' ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={() => launchMode('v5')}
+              disabled={loading === 'v5'}
+              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
+              style={{
+                background: 'var(--color-accent-subtle)',
+                border: '1px solid var(--color-accent)',
+                color: 'var(--color-accent)',
+                opacity: loading === 'v5' ? 0.6 : 1,
+              }}
+            >
+              {loading === 'v5' ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+              Launch
+            </button>
+          )}
+        </div>
+
+        {/* Deepgram Voice */}
+        <div className="flex-1 rounded-lg p-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Volume2 size={14} style={{ color: 'var(--color-accent-purple)' }} />
+              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>Deepgram Voice</span>
+            </div>
+            <div className={`text-[10px] px-2 py-0.5 rounded-full ${status.deepgram.running ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>
+              {status.deepgram.running ? 'Running' : 'Stopped'}
+            </div>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Continuous two-way voice (Deepgram API)
+          </p>
+          {status.deepgram.running ? (
+            <button
+              onClick={() => stopMode('deepgram')}
+              disabled={loading === 'deepgram'}
+              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
+              style={{
+                background: 'var(--color-error-subtle)',
+                border: '1px solid var(--color-error)',
+                color: 'var(--color-error)',
+                opacity: loading === 'deepgram' ? 0.6 : 1,
+              }}
+            >
+              {loading === 'deepgram' ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={() => launchMode('deepgram')}
+              disabled={loading === 'deepgram'}
+              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer"
+              style={{
+                background: 'var(--color-accent-subtle)',
+                border: '1px solid var(--color-accent)',
+                color: 'var(--color-accent)',
+                opacity: loading === 'deepgram' ? 0.6 : 1,
+              }}
+            >
+              {loading === 'deepgram' ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+              Launch
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Animated orb
@@ -357,7 +527,7 @@ export function VoicePage() {
         <div className="w-full max-w-xl">
 
           {/* Header */}
-          <div className="mb-10 text-center">
+          <div className="mb-6 text-center">
             <h1 className="text-3xl font-bold mb-1" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
               OpenJarvis
             </h1>
@@ -365,6 +535,9 @@ export function VoicePage() {
               Voice — Ask anything, control your machine
             </p>
           </div>
+
+          {/* Voice Mode Launcher */}
+          <VoiceModeLauncher />
 
           {/* Orb + waveform */}
           <div className="flex flex-col items-center gap-6 mb-8">

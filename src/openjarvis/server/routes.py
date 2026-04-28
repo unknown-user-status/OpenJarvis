@@ -6,8 +6,11 @@ import asyncio
 import json
 import logging
 import queue
+import subprocess
+import sys
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -1202,16 +1205,16 @@ async def trigger_learning(request: Request):
     """Trigger a learning optimization cycle."""
     try:
         from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
-        
+
         config_path = DEFAULT_CONFIG_DIR / "config.toml"
         if not config_path.exists():
             return {"success": False, "error": "Learning not configured"}
-        
+
         config = load_config(config_path)
-        
+
         if not config.learning.enabled:
             return {"success": False, "error": "Learning is disabled"}
-        
+
         # TODO: Implement actual learning trigger
         # For now, just return success
         return {
@@ -1219,6 +1222,105 @@ async def trigger_learning(request: Request):
             "result": "Learning cycle triggered",
             "message": "Optimization cycle started"
         }
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Voice Mode Control
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Store running voice processes
+_voice_processes: dict[str, subprocess.Popen] = {}
+
+
+@router.post("/api/voice/launch")
+async def launch_voice_mode(mode: str):
+    """Launch a voice mode in a new subprocess."""
+    global _voice_processes
+
+    project_root = Path(__file__).parent.parent.parent.parent.parent  # Go up to project root
+
+    scripts = {
+        "v5": project_root / "jarvis-voice.py",
+        "deepgram": project_root / "jarvis-deepgram-voice.py",
+    }
+
+    if mode not in scripts:
+        return {"success": False, "error": f"Unknown voice mode: {mode}"}
+
+    script_path = scripts[mode]
+    if not script_path.exists():
+        return {"success": False, "error": f"Script not found: {script_path}"}
+
+    # Check if already running
+    if mode in _voice_processes:
+        proc = _voice_processes[mode]
+        if proc.poll() is None:
+            return {"success": False, "error": f"Voice mode {mode} is already running"}
+
+    # Get Python executable from venv
+    venv_python = project_root / ".venv" / "Scripts" / "python.exe"
+    if not venv_python.exists():
+        venv_python = sys.executable  # Fallback to current Python
+
+    try:
+        # Launch the voice script
+        proc = subprocess.Popen(
+            [str(venv_python), str(script_path)],
+            cwd=str(project_root),
+            creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+        )
+        _voice_processes[mode] = proc
+        return {
+            "success": True,
+            "mode": mode,
+            "pid": proc.pid,
+            "message": f"Voice mode {mode} launched"
+        }
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@router.get("/api/voice/status")
+async def get_voice_status():
+    """Get status of all voice modes."""
+    status = {}
+    for mode, proc in _voice_processes.items():
+        if proc.poll() is None:
+            status[mode] = {"running": True, "pid": proc.pid}
+        else:
+            status[mode] = {"running": False, "pid": None}
+            # Clean up dead processes
+            del _voice_processes[mode]
+    return {"modes": status}
+
+
+@router.post("/api/voice/stop")
+async def stop_voice_mode(mode: str):
+    """Stop a running voice mode."""
+    global _voice_processes
+
+    if mode not in _voice_processes:
+        return {"success": False, "error": f"Voice mode {mode} is not running"}
+
+    proc = _voice_processes[mode]
+    if proc.poll() is not None:
+        # Already stopped
+        del _voice_processes[mode]
+        return {"success": True, "message": f"Voice mode {mode} was already stopped"}
+
+    try:
+        proc.terminate()
+        # Wait a bit for graceful shutdown
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+        del _voice_processes[mode]
+        return {"success": True, "message": f"Voice mode {mode} stopped"}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
