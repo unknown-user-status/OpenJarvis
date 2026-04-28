@@ -516,7 +516,7 @@ export default function CameraPage() {
                   background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
                   fontSize: 11, color: '#64748b',
                 }}>
-                  <div>Run: <code style={{ color: '#94a3b8' }}>ollama pull moondream</code></div>
+                  <div>Run: <code style={{ color: '#94a3b8' }}>ollama pull moondream</code> (not moondream:latest)</div>
                 </div>
               )}
               {ollamaOk && visionStatus.vision_models.length > 1 && (

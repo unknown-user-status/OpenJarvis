@@ -627,7 +627,7 @@ async def jarvis_camera(request: CameraRequest):
                 status_code=503,
                 detail=(
                     "No vision backend available. Options:\n"
-                    "• Ollama: run 'ollama pull moondream'\n"
+                    "• Ollama: run 'ollama pull moondream' (not moondream:latest)\n"
                     "• NPU:    run setup_openvino_npu.bat"
                 ),
             )
