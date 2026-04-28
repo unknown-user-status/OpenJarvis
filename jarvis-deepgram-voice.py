@@ -595,6 +595,7 @@ _POSSIBLE_ENDPOINTS = [
     "wss://api.deepgram.com/v1/agent",
     "wss://agent.deepgram.com/v1/agent",
     "wss://listen.deepgram.com/v1/agent",
+    "wss://api.deepgram.com/v1/listen",  # standard STT endpoint
 ]
 _WS_URL = _DG_CFG.get("endpoint", "wss://api.deepgram.com/v1/agent")
 
@@ -775,7 +776,7 @@ async def _main_async() -> None:
             print(f"  Connected to {url}")
             break
         except websockets.exceptions.InvalidStatus as e:
-            print(f"  {url} returned {e.status_code}")
+            print(f"  {url} returned {e}")
         except asyncio.TimeoutError:
             print(f"  {url} timed out")
         except TypeError as e:
