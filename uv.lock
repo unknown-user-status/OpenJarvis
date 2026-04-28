@@ -2115,6 +2115,24 @@ wheels = [
 ]
 
 [[package]]
+name = "firecrawl-py"
+version = "4.23.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "httpx" },
+    { name = "nest-asyncio" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/11/a3/5088759334803f2efa1eaa0267d93804a71d934f3185ee125aee7f72f084/firecrawl_py-4.23.0.tar.gz", hash = "sha256:7c65a74e0d328a3cf4af1cd476af2ef34090326225fab65d3fe05a2d32d2b11b", size = 179393, upload-time = "2026-04-22T21:37:54.232Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/ed/9ceb86a012dd15c4a1eb176da239b3772bf34ced598d5ca176e2c53acfc0/firecrawl_py-4.23.0-py3-none-any.whl", hash = "sha256:1029f837d1485edf1006485ab3dd94a6a6f5225e4ffef1df2d3e9cdc5c4bd296", size = 224952, upload-time = "2026-04-22T21:37:52.082Z" },
+]
+
+[[package]]
 name = "flashinfer-python"
 version = "0.6.4"
 source = { registry = "https://pypi.org/simple" }
@@ -4280,6 +4298,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nest-asyncio"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/f8/51569ac65d696c8ecbee95938f89d4abf00f47d58d48f6fbabfe8f0baefe/nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe", size = 7418, upload-time = "2024-01-21T14:25:19.227Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c", size = 5195, upload-time = "2024-01-21T14:25:17.223Z" },
+]
+
+[[package]]
 name = "networkx"
 version = "3.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4794,6 +4821,7 @@ dependencies = [
     { name = "click" },
     { name = "datasets" },
     { name = "ddgs" },
+    { name = "firecrawl-py" },
     { name = "httpx" },
     { name = "openai" },
     { name = "pillow" },
@@ -5017,6 +5045,7 @@ requires-dist = [
     { name = "faiss-cpu", marker = "extra == 'memory-faiss'", specifier = ">=1.7" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.110" },
     { name = "faster-whisper", marker = "extra == 'speech'", specifier = ">=1.0" },
+    { name = "firecrawl-py", specifier = ">=4.23.0" },
     { name = "gepa", marker = "extra == 'learning-gepa'", specifier = ">=0.1" },
     { name = "google-api-python-client", marker = "extra == 'channel-gmail'", specifier = ">=2.0" },
     { name = "google-auth", marker = "extra == 'eval-sheets'", specifier = ">=2.0" },

@@ -1,10 +1,11 @@
 @echo off
-title OpenJarvis Deepgram Voice Agent (One-to-One)
+title OpenJarvis Deepgram Voice Agent (One-to-One + Machine + Web)
 chcp 65001 >nul
 
 :: ── Load API keys from Windows User environment ──────────────────────────────
-:: If DEEPGRAM_API_KEY is set in Windows User env, it overrides config.toml.
+:: If set in Windows User env, these override config.toml.
 for /f "delims=" %%i in ('powershell -Command "[System.Environment]::GetEnvironmentVariable('DEEPGRAM_API_KEY','User')"') do set DEEPGRAM_API_KEY=%%i
+for /f "delims=" %%i in ('powershell -Command "[System.Environment]::GetEnvironmentVariable('FIRECRAWL_API_KEY','User')"') do set FIRECRAWL_API_KEY=%%i
 
 set PYTHONUTF8=1
 set LITELLM_LOG=ERROR
