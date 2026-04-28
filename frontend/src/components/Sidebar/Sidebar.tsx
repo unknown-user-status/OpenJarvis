@@ -50,17 +50,17 @@ export function Sidebar() {
   const handleNewChat = () => {
     // Don't create a new chat if the current one is empty
     if (messages.length === 0) {
-      navigate('/chat');
+      navigate('/');
       return;
     }
     createConversation(selectedModel);
-    navigate('/chat');
+    navigate('/');
   };
 
   const navItems = [
-    { path: '/', icon: Mic, label: 'Voice' },
-    { path: '/chat', icon: MessageSquare, label: 'Chat' },
     { path: '/jarvis', icon: Sparkles, label: 'Jarvis' },
+    { path: '/', icon: MessageSquare, label: 'Chat' },
+    { path: '/voice', icon: Mic, label: 'Voice' },
     { path: '/channels', icon: MessagesSquare, label: 'Channels' },
     { path: '/camera', icon: Camera, label: 'Camera Vision' },
     { path: '/desktop-control', icon: Monitor, label: 'Desktop Control' },

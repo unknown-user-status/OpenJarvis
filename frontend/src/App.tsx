@@ -177,7 +177,7 @@ export default function App() {
     <>
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<VoicePage />} />
+          <Route index element={<ChatPage />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="jarvis" element={<JarvisPage />} />
           <Route path="voice" element={<VoicePage />} />

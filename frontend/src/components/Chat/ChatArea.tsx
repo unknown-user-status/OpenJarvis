@@ -4,7 +4,7 @@ import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
 import { StreamingDots } from './StreamingDots';
 import { useAppStore } from '../../lib/store';
-import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X, Volume2, VolumeX } from 'lucide-react';
+import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X, Volume2, VolumeX, Mic } from 'lucide-react';
 import { listConnectors } from '../../lib/connectors-api';
 import { getBase } from '../../lib/api';
 
@@ -36,6 +36,10 @@ export function ChatArea() {
   const prevStreamingRef = useRef(false);
   const lastSpokenIdRef = useRef<string>('');
 
+  // Deepgram Voice Mode state
+  const [deepgramRunning, setDeepgramRunning] = useState(false);
+  const [deepgramLoading, setDeepgramLoading] = useState(false);
+
   // Check if Jarvis TTS backend is available on mount
   useEffect(() => {
     fetch(`${getBase()}/api/jarvis/health`)
@@ -43,6 +47,59 @@ export function ChatArea() {
       .then((d) => setTtsAvailable(!!d.tts_available && !!d.groq_key_set))
       .catch(() => setTtsAvailable(false));
   }, []);
+
+  // Check Deepgram Voice status
+  useEffect(() => {
+    const checkDeepgramStatus = async () => {
+      try {
+        const res = await fetch(`${getBase()}/api/voice/status`);
+        if (res.ok) {
+          const data = await res.json();
+          const modes = data.modes || {};
+          setDeepgramRunning(!!modes.deepgram?.running);
+        }
+      } catch {
+        // Ignore errors
+      }
+    };
+    checkDeepgramStatus();
+    const interval = setInterval(checkDeepgramStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const toggleDeepgramVoice = async () => {
+    if (deepgramRunning) {
+      setDeepgramLoading(true);
+      try {
+        const res = await fetch(`${getBase()}/api/voice/stop?mode=deepgram`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          setDeepgramRunning(false);
+        } else {
+          alert(data.error || 'Failed to stop Deepgram Voice');
+        }
+      } catch {
+        alert('Failed to stop Deepgram Voice');
+      } finally {
+        setDeepgramLoading(false);
+      }
+    } else {
+      setDeepgramLoading(true);
+      try {
+        const res = await fetch(`${getBase()}/api/voice/launch?mode=deepgram`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          setDeepgramRunning(true);
+        } else {
+          alert(data.error || 'Failed to launch Deepgram Voice');
+        }
+      } catch {
+        alert('Failed to launch Deepgram Voice');
+      } finally {
+        setDeepgramLoading(false);
+      }
+    }
+  };
 
   const toggleTts = useCallback(() => {
     setTtsOn((v) => {
@@ -132,6 +189,20 @@ export function ChatArea() {
     <div className="flex flex-col h-full">
       {/* Toggle bar */}
       <div className="flex items-center justify-end gap-1 px-3 py-1.5 shrink-0">
+        {/* Deepgram Voice Mode */}
+        <button
+          onClick={toggleDeepgramVoice}
+          disabled={deepgramLoading}
+          className="p-1.5 rounded-md transition-colors cursor-pointer"
+          style={{
+            color: deepgramRunning ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+            opacity: deepgramLoading ? 0.6 : 1,
+            cursor: deepgramLoading ? 'not-allowed' : 'pointer',
+          }}
+          title={deepgramRunning ? 'Deepgram Voice ON — click to stop' : 'Deepgram Voice OFF — click to start continuous voice conversation'}
+        >
+          <Mic size={15} />
+        </button>
         {/* TTS toggle */}
         <button
           onClick={ttsAvailable === false ? undefined : toggleTts}

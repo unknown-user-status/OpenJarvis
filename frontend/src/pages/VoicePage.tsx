@@ -52,7 +52,11 @@ function VoiceModeLauncher() {
       const res = await fetch(`${getBase()}/api/voice/status`);
       if (res.ok) {
         const data = await res.json();
-        setStatus(data.modes || { v5: { running: false, pid: null }, deepgram: { running: false, pid: null } });
+        const modes = data.modes || {};
+        setStatus({
+          v5: modes.v5 || { running: false, pid: null },
+          deepgram: modes.deepgram || { running: false, pid: null },
+        });
       }
     } catch {
       // Ignore errors
