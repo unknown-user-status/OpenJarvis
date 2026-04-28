@@ -592,13 +592,11 @@ if not _DEEPGRAM_API_KEY:
 # ── Deepgram endpoint (with fallbacks for API changes) ────────────────────────
 _POSSIBLE_ENDPOINTS = [
     _DG_CFG.get("endpoint", ""),
-    "wss://api.eu.deepgram.com/v1/agent/converse",  # EU endpoint (from docs)
-    "wss://api.deepgram.com/v1/agent/converse",    # US endpoint (if exists)
-    "wss://agent.deepgram.com/v1/agent",
-    "wss://listen.deepgram.com/v1/agent",
-    "wss://api.deepgram.com/v1/listen",  # standard STT endpoint
+    "wss://agent.deepgram.com/v1/agent/converse",  # Official Voice Agent endpoint (from API reference)
+    "wss://api.eu.deepgram.com/v1/agent/converse",  # EU endpoint (fallback)
+    "wss://api.deepgram.com/v1/agent/converse",    # US endpoint (fallback)
 ]
-_WS_URL = _DG_CFG.get("endpoint", "wss://api.eu.deepgram.com/v1/agent/converse")
+_WS_URL = _DG_CFG.get("endpoint", "wss://agent.deepgram.com/v1/agent/converse")
 
 _DEFAULT_PROMPT = (
     "You are a helpful personal AI assistant with full access to the user's computer and web research capabilities.\n"
@@ -772,12 +770,14 @@ async def _main_async() -> None:
             continue
         print(f"  Trying {url} ...")
         try:
-            ws = await asyncio.wait_for(websockets.connect(url), timeout=10)
+            # Send auth token in Authorization header (per Deepgram API reference)
+            headers = {"Authorization": f"Token {_DEEPGRAM_API_KEY}"}
+            ws = await asyncio.wait_for(websockets.connect(url, additional_headers=headers), timeout=10)
             connected_url = url
             print(f"  Connected to {url}")
             break
         except websockets.exceptions.InvalidStatus as e:
-            print(f"  {url} returned {e}")
+            print(f"  {url} returned server rejected WebSocket connection: HTTP {e.status_code if hasattr(e, 'status_code') else 'unknown'}")
         except asyncio.TimeoutError:
             print(f"  {url} timed out")
         except TypeError as e:
@@ -799,9 +799,8 @@ async def _main_async() -> None:
         input("Press Enter to close...")
         sys.exit(1)
 
-    # Send Settings with auth token embedded in message
-    settings_with_auth = {**_SETTINGS, "token": _DEEPGRAM_API_KEY}
-    await ws.send(json.dumps(settings_with_auth))
+    # Send Settings (auth is already in the WebSocket header)
+    await ws.send(json.dumps(_SETTINGS))
 
     mic_stream = sd.InputStream(
         samplerate=_MIC_RATE,
