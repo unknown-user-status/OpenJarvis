@@ -592,12 +592,13 @@ if not _DEEPGRAM_API_KEY:
 # ── Deepgram endpoint (with fallbacks for API changes) ────────────────────────
 _POSSIBLE_ENDPOINTS = [
     _DG_CFG.get("endpoint", ""),
-    "wss://api.deepgram.com/v1/agent",
+    "wss://api.eu.deepgram.com/v1/agent/converse",  # EU endpoint (from docs)
+    "wss://api.deepgram.com/v1/agent/converse",    # US endpoint (if exists)
     "wss://agent.deepgram.com/v1/agent",
     "wss://listen.deepgram.com/v1/agent",
     "wss://api.deepgram.com/v1/listen",  # standard STT endpoint
 ]
-_WS_URL = _DG_CFG.get("endpoint", "wss://api.deepgram.com/v1/agent")
+_WS_URL = _DG_CFG.get("endpoint", "wss://api.eu.deepgram.com/v1/agent/converse")
 
 _DEFAULT_PROMPT = (
     "You are a helpful personal AI assistant with full access to the user's computer and web research capabilities.\n"
