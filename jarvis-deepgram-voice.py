@@ -772,10 +772,7 @@ async def _main_async() -> None:
             continue
         print(f"  Trying {url} ...")
         try:
-            try:
-                ws = await websockets.connect(url, additional_headers=headers, timeout=10)
-            except TypeError:
-                ws = await websockets.connect(url, extra_headers=headers, timeout=10)
+            ws = await websockets.connect(url, additional_headers=headers, timeout=10)
             connected_url = url
             print(f"  Connected to {url}")
             break
