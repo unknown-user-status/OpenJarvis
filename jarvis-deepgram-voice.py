@@ -770,16 +770,16 @@ async def _main_async() -> None:
             continue
         print(f"  Trying {url} ...")
         try:
-            ws = await websockets.connect(url, timeout=10)
+            ws = await asyncio.wait_for(websockets.connect(url), timeout=10)
             connected_url = url
             print(f"  Connected to {url}")
             break
         except websockets.exceptions.InvalidStatus as e:
             print(f"  {url} returned {e.status_code}")
+        except asyncio.TimeoutError:
+            print(f"  {url} timed out")
         except TypeError as e:
             print(f"  {url} parameter error: {e}")
-        except Exception as e:
-            print(f"  {url} failed: {e}")
         except Exception as e:
             print(f"  {url} failed: {e}")
 
