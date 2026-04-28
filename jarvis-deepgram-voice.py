@@ -762,8 +762,6 @@ def _queue_audio(audio_bytes: bytes) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _main_async() -> None:
-    headers = {"Authorization": f"Token {_DEEPGRAM_API_KEY}"}
-
     # Try endpoints in sequence until one works
     ws = None
     connected_url = None
@@ -772,10 +770,7 @@ async def _main_async() -> None:
             continue
         print(f"  Trying {url} ...")
         try:
-            # Try using websockets.connect with additional_headers as a callable
-            def get_headers():
-                return headers
-            ws = await websockets.connect(url, additional_headers=get_headers, timeout=10)
+            ws = await websockets.connect(url, timeout=10)
             connected_url = url
             print(f"  Connected to {url}")
             break
@@ -783,14 +778,8 @@ async def _main_async() -> None:
             print(f"  {url} returned {e.status_code}")
         except TypeError as e:
             print(f"  {url} parameter error: {e}")
-            # Try without headers
-            try:
-                ws = await websockets.connect(url, timeout=10)
-                connected_url = url
-                print(f"  Connected to {url} (no headers)")
-                break
-            except Exception as e2:
-                print(f"  {url} without headers failed: {e2}")
+        except Exception as e:
+            print(f"  {url} failed: {e}")
         except Exception as e:
             print(f"  {url} failed: {e}")
 
@@ -808,7 +797,9 @@ async def _main_async() -> None:
         input("Press Enter to close...")
         sys.exit(1)
 
-    await ws.send(json.dumps(_SETTINGS))
+    # Send Settings with auth token embedded in message
+    settings_with_auth = {**_SETTINGS, "token": _DEEPGRAM_API_KEY}
+    await ws.send(json.dumps(settings_with_auth))
 
     mic_stream = sd.InputStream(
         samplerate=_MIC_RATE,
