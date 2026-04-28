@@ -589,7 +589,14 @@ if not _DEEPGRAM_API_KEY:
     input("Press Enter to close...")
     sys.exit(1)
 
-_WS_URL = _DG_CFG.get("endpoint", "wss://agent.deepgram.com/v1/agent")
+# ── Deepgram endpoint (with fallbacks for API changes) ────────────────────────
+_POSSIBLE_ENDPOINTS = [
+    _DG_CFG.get("endpoint", ""),
+    "wss://api.deepgram.com/v1/agent",
+    "wss://agent.deepgram.com/v1/agent",
+    "wss://listen.deepgram.com/v1/agent",
+]
+_WS_URL = _DG_CFG.get("endpoint", "wss://api.deepgram.com/v1/agent")
 
 _DEFAULT_PROMPT = (
     "You are a helpful personal AI assistant with full access to the user's computer and web research capabilities.\n"
@@ -757,11 +764,39 @@ def _queue_audio(audio_bytes: bytes) -> None:
 async def _main_async() -> None:
     headers = {"Authorization": f"Token {_DEEPGRAM_API_KEY}"}
 
-    print(f"  Connecting to {_WS_URL} ...")
-    try:
-        ws = await websockets.connect(_WS_URL, additional_headers=headers)
-    except TypeError:
-        ws = await websockets.connect(_WS_URL, extra_headers=headers)
+    # Try endpoints in sequence until one works
+    ws = None
+    connected_url = None
+    for url in _POSSIBLE_ENDPOINTS:
+        if not url:
+            continue
+        print(f"  Trying {url} ...")
+        try:
+            try:
+                ws = await websockets.connect(url, additional_headers=headers, timeout=10)
+            except TypeError:
+                ws = await websockets.connect(url, extra_headers=headers, timeout=10)
+            connected_url = url
+            print(f"  Connected to {url}")
+            break
+        except websockets.exceptions.InvalidStatus as e:
+            print(f"  {url} returned {e.status_code}")
+        except Exception as e:
+            print(f"  {url} failed: {e}")
+
+    if ws is None:
+        print("  ERROR: Could not connect to any Deepgram endpoint.")
+        print("  Tried the following endpoints:")
+        for url in _POSSIBLE_ENDPOINTS:
+            if url:
+                print(f"    - {url}")
+        print()
+        print("  Possible issues:")
+        print("  1. Deepgram Voice Agent API may have changed — check docs")
+        print("  2. API key may be invalid or expired")
+        print("  3. Network connectivity issue")
+        input("Press Enter to close...")
+        sys.exit(1)
 
     await ws.send(json.dumps(_SETTINGS))
 
