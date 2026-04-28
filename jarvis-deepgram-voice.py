@@ -772,12 +772,25 @@ async def _main_async() -> None:
             continue
         print(f"  Trying {url} ...")
         try:
-            ws = await websockets.connect(url, additional_headers=headers, timeout=10)
+            # Try using websockets.connect with additional_headers as a callable
+            def get_headers():
+                return headers
+            ws = await websockets.connect(url, additional_headers=get_headers, timeout=10)
             connected_url = url
             print(f"  Connected to {url}")
             break
         except websockets.exceptions.InvalidStatus as e:
             print(f"  {url} returned {e.status_code}")
+        except TypeError as e:
+            print(f"  {url} parameter error: {e}")
+            # Try without headers
+            try:
+                ws = await websockets.connect(url, timeout=10)
+                connected_url = url
+                print(f"  Connected to {url} (no headers)")
+                break
+            except Exception as e2:
+                print(f"  {url} without headers failed: {e2}")
         except Exception as e:
             print(f"  {url} failed: {e}")
 
