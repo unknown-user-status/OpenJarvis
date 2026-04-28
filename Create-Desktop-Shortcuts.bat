@@ -16,6 +16,38 @@ echo.
 echo Creating shortcuts...
 echo.
 
+:: Create shortcut for OpenJarvis Menu (Unified Launcher)
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%DESKTOP%\OpenJarvis.lnk'); $s.TargetPath = '%SCRIPT_DIR%OpenJarvis-Menu.bat'; $s.WorkingDirectory = '%SCRIPT_DIR%'; $s.Description = 'OpenJarvis Unified Launcher - Choose GUI, Voice, or Terminal'; $s.Save()"
+if errorlevel 1 (
+    echo ❌ OpenJarvis shortcut failed
+) else (
+    echo ✅ OpenJarvis shortcut created
+)
+
+:: Create shortcut for OpenJarvis GUI
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%DESKTOP%\OpenJarvis GUI.lnk'); $s.TargetPath = '%SCRIPT_DIR%OpenJarvis-GUI.bat'; $s.WorkingDirectory = '%SCRIPT_DIR%'; $s.Description = 'OpenJarvis Web Interface'; $s.Save()"
+if errorlevel 1 (
+    echo ❌ OpenJarvis GUI shortcut failed
+) else (
+    echo ✅ OpenJarvis GUI shortcut created
+)
+
+:: Create shortcut for Voice Mode v5
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%DESKTOP%\OpenJarvis Voice.lnk'); $s.TargetPath = '%SCRIPT_DIR%OpenJarvis-Voice.bat'; $s.WorkingDirectory = '%SCRIPT_DIR%'; $s.Description = 'OpenJarvis Voice Mode v5 - Local VAD'; $s.Save()"
+if errorlevel 1 (
+    echo ❌ OpenJarvis Voice shortcut failed
+) else (
+    echo ✅ OpenJarvis Voice shortcut created
+)
+
+:: Create shortcut for Deepgram Voice Agent
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%DESKTOP%\OpenJarvis Deepgram Voice.lnk'); $s.TargetPath = '%SCRIPT_DIR%OpenJarvis-Deepgram-Voice.bat'; $s.WorkingDirectory = '%SCRIPT_DIR%'; $s.Description = 'OpenJarvis Deepgram Voice - Continuous two-way voice'; $s.Save()"
+if errorlevel 1 (
+    echo ❌ OpenJarvis Deepgram Voice shortcut failed
+) else (
+    echo ✅ OpenJarvis Deepgram Voice shortcut created
+)
+
 :: Create shortcut for Test All Primitives
 powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%DESKTOP%\Test All Primitives.lnk'); $s.TargetPath = '%SCRIPT_DIR%Test-All-Primitives.bat'; $s.WorkingDirectory = '%SCRIPT_DIR%'; $s.Description = 'Run comprehensive test suite for all five primitives'; $s.Save()"
 if errorlevel 1 (
@@ -63,8 +95,12 @@ echo 🎉 Desktop shortcuts created successfully!
 echo.
 echo You can now double-click these shortcuts on your desktop:
 echo.
+echo    • OpenJarvis - Unified launcher (choose GUI, Voice, or Terminal)
+echo    • OpenJarvis GUI - Web interface
+echo    • OpenJarvis Voice - Local VAD-based voice control
+echo    • OpenJarvis Deepgram Voice - Continuous two-way voice (Deepgram API)
 echo    • Test All Primitives - Quick comprehensive test
-echo    • Fix Cache and Restart - Fix cache issues  
+echo    • Fix Cache and Restart - Fix cache issues
 echo    • OpenJarvis Test Suite - Python version
 echo    • OpenJarvis Cache Fix - Python version
 echo.
