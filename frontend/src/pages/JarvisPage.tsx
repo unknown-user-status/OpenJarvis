@@ -288,7 +288,7 @@ export function JarvisPage() {
   const [ttsOn, setTtsOn]       = useState(true);
   const [voice, setVoice]       = useState('hannah');
   const [online, setOnline]     = useState(false);
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>('v5');
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>('push-to-talk');
 
   const mediaRef  = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -456,7 +456,7 @@ export function JarvisPage() {
 
   const startAlwaysOnVoice = useCallback(() => {
     if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) {
-      setError('Speech recognition not supported in this browser.');
+      setError('Speech recognition not supported in this browser. Try Chrome or Edge.');
       setPhase('error');
       return;
     }
@@ -494,7 +494,20 @@ export function JarvisPage() {
       console.error('Speech recognition error:', event.error);
       if (event.error === 'no-speech') {
         // Restart on no-speech error
-        recognition.start();
+        try {
+          recognition.start();
+        } catch (e) {
+          // Already started or other error
+        }
+      } else if (event.error === 'aborted') {
+        // User aborted or permission denied
+        setError('Speech recognition aborted - allow microphone access');
+        setPhase('error');
+        setVoiceMode('push-to-talk');
+      } else if (event.error === 'not-allowed') {
+        setError('Microphone access denied - allow in browser settings');
+        setPhase('error');
+        setVoiceMode('push-to-talk');
       } else {
         setError(`Speech recognition error: ${event.error}`);
         setPhase('error');
@@ -508,7 +521,8 @@ export function JarvisPage() {
         try {
           recognition.start();
         } catch (e) {
-          // Already started
+          // Already started or error
+          console.log('Could not restart speech recognition:', e);
         }
       }
     };
@@ -519,6 +533,8 @@ export function JarvisPage() {
       setPhase('recording');
     } catch (e) {
       console.error('Failed to start speech recognition:', e);
+      setError('Failed to start speech recognition');
+      setPhase('error');
     }
   }, [voiceMode, sendText]);
 
@@ -657,7 +673,7 @@ export function JarvisPage() {
 
       ws.onerror = (error) => {
         console.error('v5 WebSocket error:', error);
-        setError('v5 connection error');
+        setError('v5 connection error - try another voice mode');
         setPhase('error');
       };
 
@@ -669,7 +685,7 @@ export function JarvisPage() {
       };
     } catch (e) {
       console.error('Failed to connect to v5:', e);
-      setError('Failed to connect to v5');
+      setError('Failed to connect to v5 - try another voice mode');
       setPhase('error');
     }
   }, [voiceMode]);
@@ -816,7 +832,7 @@ export function JarvisPage() {
               style={{ color: 'var(--color-text-tertiary)' }}>Voice Mode</p>
             <div className="flex flex-col gap-2 mb-2">
               <button
-                onClick={() => setVoiceMode('v5')}
+                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('v5'); }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'v5' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
@@ -825,10 +841,10 @@ export function JarvisPage() {
                 }}
               >
                 <Sparkles size={11} />
-                v5 Always-ON (Default)
+                v5 Always-ON
               </button>
               <button
-                onClick={() => setVoiceMode('push-to-talk')}
+                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('push-to-talk'); }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'push-to-talk' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
@@ -840,7 +856,7 @@ export function JarvisPage() {
                 Push-to-Talk
               </button>
               <button
-                onClick={() => setVoiceMode('always-on')}
+                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('always-on'); }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'always-on' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
@@ -852,7 +868,7 @@ export function JarvisPage() {
                 Always-ON (Web Speech)
               </button>
               <button
-                onClick={() => setVoiceMode('deepgram')}
+                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('deepgram'); }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'deepgram' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
