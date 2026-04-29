@@ -9,9 +9,20 @@
  * • Conversation feed (chat bubbles)
  * • Right-hand capability quick-access panel
  * • TTS voice response — plays Groq Orpheus WAV
+ * • Always-on voice mode using Web Speech API
  */
 
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react';
+
+// Web Speech API type declaration
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
+type SpeechRecognition = any;
 import {
   Mic, MicOff, Send, Volume2, VolumeX, Loader2, Zap, Bot,
   Clock, Wifi, WifiOff, StopCircle, ChevronRight,
@@ -276,12 +287,15 @@ export function JarvisPage() {
   const [ttsOn, setTtsOn]       = useState(true);
   const [voice, setVoice]       = useState('hannah');
   const [online, setOnline]     = useState(false);
+  const [alwaysOnVoice, setAlwaysOnVoice] = useState(false);
 
   const mediaRef  = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef  = useRef<HTMLAudioElement | null>(null);
   const feedRef   = useRef<HTMLDivElement>(null);
+  const speechRef = useRef<SpeechRecognition | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-scroll feed
   useEffect(() => {
@@ -434,16 +448,109 @@ export function JarvisPage() {
     if (['idle', 'done', 'error'].includes(phase)) startRecording();
   };
 
+  // ── Always-on voice mode using Web Speech API ─────────────────────────────
+
+  const startAlwaysOnVoice = useCallback(() => {
+    if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) {
+      setError('Speech recognition not supported in this browser.');
+      setPhase('error');
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    let finalTranscript = '';
+    let silenceTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' ';
+          // Reset silence timer on final result
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (finalTranscript.trim()) {
+              sendText(finalTranscript.trim());
+              finalTranscript = '';
+            }
+          }, 1200); // Send after 1.2s of silence
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      if (event.error === 'no-speech') {
+        // Restart on no-speech error
+        recognition.start();
+      } else {
+        setError(`Speech recognition error: ${event.error}`);
+        setPhase('error');
+        setAlwaysOnVoice(false);
+      }
+    };
+
+    recognition.onend = () => {
+      if (alwaysOnVoice) {
+        // Restart if still in always-on mode
+        try {
+          recognition.start();
+        } catch (e) {
+          // Already started
+        }
+      }
+    };
+
+    speechRef.current = recognition;
+    try {
+      recognition.start();
+      setPhase('recording');
+    } catch (e) {
+      console.error('Failed to start speech recognition:', e);
+    }
+  }, [alwaysOnVoice, sendText]);
+
+  const stopAlwaysOnVoice = useCallback(() => {
+    if (speechRef.current) {
+      speechRef.current.stop();
+      speechRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    setPhase('idle');
+  }, []);
+
+  useEffect(() => {
+    if (alwaysOnVoice) {
+      startAlwaysOnVoice();
+    } else {
+      stopAlwaysOnVoice();
+    }
+    return () => {
+      stopAlwaysOnVoice();
+    };
+  }, [alwaysOnVoice, startAlwaysOnVoice, stopAlwaysOnVoice]);
+
   const isRecording = phase === 'recording';
   const isWorking   = phase === 'transcribing' || phase === 'thinking';
 
   const phaseLabel: Record<Phase, string> = {
-    idle:         'Ready — click the orb or type a command',
-    recording:    `Listening… ${countdown}s`,
+    idle:         alwaysOnVoice ? 'Always-ON listening — just speak' : 'Ready — click the orb or type a command',
+    recording:    alwaysOnVoice ? 'Always-ON listening…' : `Listening… ${countdown}s`,
     transcribing: 'Transcribing your voice…',
     thinking:     'Processing command…',
     speaking:     'Jarvis is speaking…',
-    done:         'Ready',
+    done:         alwaysOnVoice ? 'Always-ON listening — just speak' : 'Ready',
     error:        error || 'Error',
   };
 
@@ -459,11 +566,11 @@ export function JarvisPage() {
           <div className="flex flex-col items-center justify-center gap-4 py-6 shrink-0"
             style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
             <button
-              onClick={handleMicClick}
-              disabled={isWorking}
+              onClick={alwaysOnVoice ? undefined : handleMicClick}
+              disabled={isWorking || alwaysOnVoice}
               className="transition-transform duration-150 focus:outline-none"
-              style={{ cursor: isWorking ? 'default' : 'pointer', opacity: isWorking ? 0.85 : 1 }}
-              aria-label={isRecording ? 'Stop' : 'Start voice'}
+              style={{ cursor: (isWorking || alwaysOnVoice) ? 'default' : 'pointer', opacity: (isWorking || alwaysOnVoice) ? 0.85 : 1 }}
+              aria-label={alwaysOnVoice ? 'Always-on listening' : isRecording ? 'Stop' : 'Start voice'}
             >
               <JarvisOrb phase={phase} size={140} />
             </button>
@@ -497,15 +604,17 @@ export function JarvisPage() {
 
               {/* Mic */}
               <button
-                onClick={handleMicClick}
-                disabled={isWorking}
+                onClick={alwaysOnVoice ? undefined : handleMicClick}
+                disabled={isWorking || alwaysOnVoice}
                 className="rounded-full p-1.5 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
                 style={{
                   background: isRecording ? 'var(--color-error)' : 'transparent',
                   color: isRecording ? '#fff' : 'var(--color-text-secondary)',
+                  opacity: alwaysOnVoice ? 0.4 : 1,
                 }}
+                title={alwaysOnVoice ? 'Always-ON mode active' : isRecording ? 'Stop recording' : 'Start recording'}
               >
-                {isRecording ? <StopCircle size={16} /> : <Mic size={16} />}
+                {alwaysOnVoice ? <Mic size={16} /> : isRecording ? <StopCircle size={16} /> : <Mic size={16} />}
               </button>
 
               <input
@@ -554,6 +663,18 @@ export function JarvisPage() {
             <p className="text-xs font-semibold uppercase tracking-widest mb-2"
               style={{ color: 'var(--color-text-tertiary)' }}>Voice</p>
             <div className="flex items-center gap-2 mb-2">
+              <button
+                onClick={() => setAlwaysOnVoice((v) => !v)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: alwaysOnVoice ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
+                  border: `1px solid ${alwaysOnVoice ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                  color: alwaysOnVoice ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                }}
+              >
+                {alwaysOnVoice ? <Mic size={11} /> : <MicOff size={11} />}
+                {alwaysOnVoice ? 'Always-ON' : 'Push-to-Talk'}
+              </button>
               <button
                 onClick={() => setTtsOn((v) => !v)}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors cursor-pointer"
