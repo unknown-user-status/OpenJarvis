@@ -1239,7 +1239,7 @@ async def launch_voice_mode(mode: str):
     """Launch a voice mode in a new subprocess."""
     global _voice_processes
 
-    project_root = Path(__file__).parent.parent.parent.parent.parent  # Go up to project root
+    project_root = Path(__file__).parent.parent.parent.parent  # Go up to project root
 
     scripts = {
         "v5": project_root / "jarvis-voice.py",
