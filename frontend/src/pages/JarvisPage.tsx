@@ -550,16 +550,7 @@ export function JarvisPage() {
     setPhase('idle');
   }, []);
 
-  useEffect(() => {
-    if (voiceMode === 'always-on') {
-      startAlwaysOnVoice();
-    } else {
-      stopAlwaysOnVoice();
-    }
-    return () => {
-      stopAlwaysOnVoice();
-    };
-  }, [voiceMode, startAlwaysOnVoice, stopAlwaysOnVoice]);
+  // Always-on voice mode using Web Speech API - manual start only
 
   // ── Deepgram WebSocket connection ───────────────────────────────────────────
 
@@ -628,16 +619,7 @@ export function JarvisPage() {
     setPhase('idle');
   }, []);
 
-  useEffect(() => {
-    if (voiceMode === 'deepgram') {
-      startDeepgramConnection();
-    } else {
-      stopDeepgramConnection();
-    }
-    return () => {
-      stopDeepgramConnection();
-    };
-  }, [voiceMode, startDeepgramConnection, stopDeepgramConnection]);
+  // Deepgram WebSocket connection - manual start only
 
   // ── v5 Voice Mode WebSocket connection ─────────────────────────────────────
 
@@ -698,16 +680,7 @@ export function JarvisPage() {
     setPhase('idle');
   }, []);
 
-  useEffect(() => {
-    if (voiceMode === 'v5') {
-      startV5Connection();
-    } else {
-      stopV5Connection();
-    }
-    return () => {
-      stopV5Connection();
-    };
-  }, [voiceMode, startV5Connection, stopV5Connection]);
+  // v5 Voice Mode WebSocket connection - manual start only
 
   const isRecording = phase === 'recording';
   const isWorking   = phase === 'transcribing' || phase === 'thinking';
@@ -832,7 +805,12 @@ export function JarvisPage() {
               style={{ color: 'var(--color-text-tertiary)' }}>Voice Mode</p>
             <div className="flex flex-col gap-2 mb-2">
               <button
-                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('v5'); }}
+                onClick={() => { 
+                  setPhase('idle'); 
+                  setError(''); 
+                  setVoiceMode('v5');
+                  startV5Connection();
+                }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'v5' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
@@ -844,7 +822,11 @@ export function JarvisPage() {
                 v5 Always-ON
               </button>
               <button
-                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('push-to-talk'); }}
+                onClick={() => { 
+                  setPhase('idle'); 
+                  setError(''); 
+                  setVoiceMode('push-to-talk');
+                }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'push-to-talk' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
@@ -856,7 +838,12 @@ export function JarvisPage() {
                 Push-to-Talk
               </button>
               <button
-                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('always-on'); }}
+                onClick={() => { 
+                  setPhase('idle'); 
+                  setError(''); 
+                  setVoiceMode('always-on');
+                  startAlwaysOnVoice();
+                }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'always-on' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
@@ -868,7 +855,12 @@ export function JarvisPage() {
                 Always-ON (Web Speech)
               </button>
               <button
-                onClick={() => { setPhase('idle'); setError(''); setVoiceMode('deepgram'); }}
+                onClick={() => { 
+                  setPhase('idle'); 
+                  setError(''); 
+                  setVoiceMode('deepgram');
+                  startDeepgramConnection();
+                }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
                 style={{
                   background: voiceMode === 'deepgram' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
