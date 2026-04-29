@@ -97,7 +97,9 @@ try:
     # Add the Jarvis chat/voice/tts routes
     app.include_router(jarvis_router)
     from openjarvis.server.deepgram_ws import create_deepgram_ws_router
+    from openjarvis.server.v5_voice_ws import create_v5_voice_ws_router
     app.include_router(create_deepgram_ws_router())
+    app.include_router(create_v5_voice_ws_router())
 
     print(f"  Engine:  {engine_name}")
     print(f"  Model:   {model_name}")
@@ -111,6 +113,7 @@ except Exception as _boot_err:
     from openjarvis.server.jarvis_routes  import jarvis_router
     from openjarvis.server.desktop_routes import router as desktop_router, plugins_router
     from openjarvis.server.deepgram_ws import create_deepgram_ws_router
+    from openjarvis.server.v5_voice_ws import create_v5_voice_ws_router
 
     app = FastAPI(title="OpenJarvis GUI Server (minimal)", version="3.0.0")
     app.add_middleware(CORSMiddleware, allow_origins=["*"],
@@ -120,6 +123,7 @@ except Exception as _boot_err:
     app.include_router(desktop_router)
     app.include_router(plugins_router)
     app.include_router(create_deepgram_ws_router())
+    app.include_router(create_v5_voice_ws_router())
 
     @app.get("/v1/managed-agents")
     def _agents(): return {"agents": []}

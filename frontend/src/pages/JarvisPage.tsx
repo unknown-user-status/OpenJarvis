@@ -25,7 +25,7 @@ declare global {
 type SpeechRecognition = any;
 import {
   Mic, MicOff, Send, Volume2, VolumeX, Loader2, Zap, Bot,
-  Clock, Wifi, WifiOff, StopCircle, ChevronRight,
+  Clock, Wifi, WifiOff, StopCircle, ChevronRight, Sparkles,
 } from 'lucide-react';
 import { getBase } from '../lib/api';
 
@@ -34,7 +34,7 @@ import { getBase } from '../lib/api';
 // ---------------------------------------------------------------------------
 
 type Phase = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'done' | 'error';
-type VoiceMode = 'push-to-talk' | 'always-on' | 'deepgram';
+type VoiceMode = 'push-to-talk' | 'always-on' | 'deepgram' | 'v5';
 
 interface Message {
   id: string;
@@ -288,7 +288,7 @@ export function JarvisPage() {
   const [ttsOn, setTtsOn]       = useState(true);
   const [voice, setVoice]       = useState('hannah');
   const [online, setOnline]     = useState(false);
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>('push-to-talk');
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>('v5');
 
   const mediaRef  = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -299,6 +299,7 @@ export function JarvisPage() {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deepgramWsRef = useRef<WebSocket | null>(null);
   const deepgramAudioContextRef = useRef<AudioContext | null>(null);
+  const v5WsRef = useRef<WebSocket | null>(null);
 
   // Auto-scroll feed
   useEffect(() => {
@@ -622,16 +623,86 @@ export function JarvisPage() {
     };
   }, [voiceMode, startDeepgramConnection, stopDeepgramConnection]);
 
+  // ── v5 Voice Mode WebSocket connection ─────────────────────────────────────
+
+  const startV5Connection = useCallback(async () => {
+    try {
+      const ws = new WebSocket(`${getBase().replace('http', 'ws')}/api/v5-voice/ws`);
+      v5WsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('v5 WebSocket connected');
+        setPhase('recording');
+        setError('');
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'ready') {
+            console.log('v5 ready:', data.message);
+          } else if (data.type === 'speech_detected') {
+            // Speech detected by backend VAD
+            console.log('Speech detected');
+          } else if (data.type === 'thinking') {
+            setPhase('thinking');
+          } else if (data.type === 'response') {
+            pushMsg('jarvis', data.text);
+            setPhase('done');
+          }
+        } catch (e) {
+          console.error('Error parsing v5 message:', e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('v5 WebSocket error:', error);
+        setError('v5 connection error');
+        setPhase('error');
+      };
+
+      ws.onclose = () => {
+        console.log('v5 WebSocket closed');
+        if (voiceMode === 'v5') {
+          setPhase('idle');
+        }
+      };
+    } catch (e) {
+      console.error('Failed to connect to v5:', e);
+      setError('Failed to connect to v5');
+      setPhase('error');
+    }
+  }, [voiceMode]);
+
+  const stopV5Connection = useCallback(() => {
+    if (v5WsRef.current) {
+      v5WsRef.current.close();
+      v5WsRef.current = null;
+    }
+    setPhase('idle');
+  }, []);
+
+  useEffect(() => {
+    if (voiceMode === 'v5') {
+      startV5Connection();
+    } else {
+      stopV5Connection();
+    }
+    return () => {
+      stopV5Connection();
+    };
+  }, [voiceMode, startV5Connection, stopV5Connection]);
+
   const isRecording = phase === 'recording';
   const isWorking   = phase === 'transcribing' || phase === 'thinking';
 
   const phaseLabel: Record<Phase, string> = {
-    idle:         voiceMode === 'always-on' ? 'Always-ON listening — just speak' : voiceMode === 'deepgram' ? 'Deepgram connected — speak naturally' : 'Ready — click the orb or type a command',
-    recording:    voiceMode === 'always-on' ? 'Always-ON listening…' : voiceMode === 'deepgram' ? 'Deepgram listening…' : `Listening… ${countdown}s`,
+    idle:         voiceMode === 'v5' ? 'v5 Always-ON — just speak' : voiceMode === 'always-on' ? 'Always-ON listening — just speak' : voiceMode === 'deepgram' ? 'Deepgram connected — speak naturally' : 'Ready — click the orb or type a command',
+    recording:    voiceMode === 'v5' ? 'v5 Always-ON listening…' : voiceMode === 'always-on' ? 'Always-ON listening…' : voiceMode === 'deepgram' ? 'Deepgram listening…' : `Listening… ${countdown}s`,
     transcribing: 'Transcribing your voice…',
     thinking:     'Processing command…',
     speaking:     'Jarvis is speaking…',
-    done:         voiceMode === 'always-on' ? 'Always-ON listening — just speak' : voiceMode === 'deepgram' ? 'Deepgram connected — speak naturally' : 'Ready',
+    done:         voiceMode === 'v5' ? 'v5 Always-ON — just speak' : voiceMode === 'always-on' ? 'Always-ON listening — just speak' : voiceMode === 'deepgram' ? 'Deepgram connected — speak naturally' : 'Ready',
     error:        error || 'Error',
   };
 
@@ -647,11 +718,11 @@ export function JarvisPage() {
           <div className="flex flex-col items-center justify-center gap-4 py-6 shrink-0"
             style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
             <button
-              onClick={voiceMode !== 'push-to-talk' ? undefined : handleMicClick}
+              onClick={voiceMode === 'push-to-talk' ? handleMicClick : undefined}
               disabled={isWorking || voiceMode !== 'push-to-talk'}
               className="transition-transform duration-150 focus:outline-none"
               style={{ cursor: (isWorking || voiceMode !== 'push-to-talk') ? 'default' : 'pointer', opacity: (isWorking || voiceMode !== 'push-to-talk') ? 0.85 : 1 }}
-              aria-label={voiceMode === 'always-on' ? 'Always-on listening' : voiceMode === 'deepgram' ? 'Deepgram listening' : isRecording ? 'Stop' : 'Start voice'}
+              aria-label={voiceMode === 'v5' ? 'v5 Always-on listening' : voiceMode === 'always-on' ? 'Always-on listening' : voiceMode === 'deepgram' ? 'Deepgram listening' : isRecording ? 'Stop' : 'Start voice'}
             >
               <JarvisOrb phase={phase} size={140} />
             </button>
@@ -685,7 +756,7 @@ export function JarvisPage() {
 
               {/* Mic */}
               <button
-                onClick={voiceMode !== 'push-to-talk' ? undefined : handleMicClick}
+                onClick={voiceMode === 'push-to-talk' ? handleMicClick : undefined}
                 disabled={isWorking || voiceMode !== 'push-to-talk'}
                 className="rounded-full p-1.5 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
                 style={{
@@ -693,7 +764,7 @@ export function JarvisPage() {
                   color: isRecording ? '#fff' : 'var(--color-text-secondary)',
                   opacity: voiceMode !== 'push-to-talk' ? 0.4 : 1,
                 }}
-                title={voiceMode === 'always-on' ? 'Always-ON mode active' : voiceMode === 'deepgram' ? 'Deepgram mode active' : isRecording ? 'Stop recording' : 'Start recording'}
+                title={voiceMode === 'v5' ? 'v5 Always-ON mode active' : voiceMode === 'always-on' ? 'Always-ON mode active' : voiceMode === 'deepgram' ? 'Deepgram mode active' : isRecording ? 'Stop recording' : 'Start recording'}
               >
                 {voiceMode !== 'push-to-talk' ? <Mic size={16} /> : isRecording ? <StopCircle size={16} /> : <Mic size={16} />}
               </button>
@@ -744,6 +815,18 @@ export function JarvisPage() {
             <p className="text-xs font-semibold uppercase tracking-widest mb-2"
               style={{ color: 'var(--color-text-tertiary)' }}>Voice Mode</p>
             <div className="flex flex-col gap-2 mb-2">
+              <button
+                onClick={() => setVoiceMode('v5')}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
+                style={{
+                  background: voiceMode === 'v5' ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)',
+                  border: `1px solid ${voiceMode === 'v5' ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                  color: voiceMode === 'v5' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                }}
+              >
+                <Sparkles size={11} />
+                v5 Always-ON (Default)
+              </button>
               <button
                 onClick={() => setVoiceMode('push-to-talk')}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-left"
